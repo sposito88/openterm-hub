@@ -123,7 +123,8 @@ test('shortcut combos are layout independent and validated', async () => {
   assert.equal(isValidShortcut('A'), false)
   assert.equal(isValidShortcut('F5'), true)
   assert.equal(isValidShortcut('Ctrl+,'), true)
-  const map = resolveShortcuts({ closeTab: '', copy: 'Ctrl+Alt+C' })
+  // Explicit platform: on macOS runners Node exposes navigator.platform too.
+  const map = resolveShortcuts({ closeTab: '', copy: 'Ctrl+Alt+C' }, false)
   assert.equal(map.closeTab, '')
   assert.equal(map.copy, 'Ctrl+Alt+C')
   assert.equal(map.paste, 'Ctrl+Shift+V')
