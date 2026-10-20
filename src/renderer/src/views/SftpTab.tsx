@@ -280,10 +280,27 @@ function SourcePicker({ anchor, onPick, onClose }: { anchor: DOMRect; onPick(hos
     window.addEventListener('mousedown', close, true)
     return () => window.removeEventListener('mousedown', close, true)
   }, [])
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
   const groups = new Map<string, typeof hosts>()
-  for (const h of [...hosts].sort((a, b) => a.label.localeCompare(b.label))) groups.set(h.group, [...(groups.get(h.group) ?? []), h])
+  for (const h of [...hosts].sort((a, b) => a.label.localeCompare(b.label))) {
+    if (q && ![h.label, h.hostname, h.username, h.group].some((v) => v.toLowerCase().includes(q))) continue
+    groups.set(h.group, [...(groups.get(h.group) ?? []), h])
+  }
+  const first = [...groups.values()][0]?.[0]
   return (
     <div ref={ref} className="menu source-picker" style={{ position: 'fixed', left: anchor.left, top: anchor.bottom + 4 }}>
+      <input
+        className="input"
+        autoFocus
+        placeholder={t('searchHosts')}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose()
+          if (e.key === 'Enter' && first) onPick(first.id)
+        }}
+      />
       <button onClick={() => onPick(null)}>
         <Icon name="terminal" size={14} /> {t('thisComputer')}
       </button>
@@ -324,6 +341,9 @@ function FilePane(props: {
   const [draft, setDraft] = useState(state.path)
   const [dropping, setDropping] = useState(false)
   useEffect(() => setDraft(state.path), [state.path])
+  // A filter belongs to the folder it was typed in.
+  const sourceKey = state.source?.kind === 'host' ? state.source.sftpId : state.source?.kind
+  useEffect(() => setFilter(''), [state.path, sourceKey])
 
   const q = filter.trim().toLowerCase()
   const entries = state.entries.filter((e) => (showHidden || !e.name.startsWith('.')) && (!q || e.name.toLowerCase().includes(q)))
@@ -403,6 +423,20 @@ function FilePane(props: {
         </div>
         {state.connecting && <div className="empty">{t('connecting')} {state.connecting}…</div>}
         {state.error && <div className="empty">{state.error}</div>}
+        {!state.error && !state.connecting && state.source && entries.length === 0 && (
+          <div className="empty">
+            {q ? (
+              <>
+                {t('noFilterMatch').replace('{q}', filter.trim())}{' '}
+                <button className="btn small" onClick={() => setFilter('')}>
+                  {t('clearFilter')}
+                </button>
+              </>
+            ) : (
+              t('emptyFolder')
+            )}
+          </div>
+        )}
         {!atRoot && (
           <div className="frow" onDoubleClick={() => props.onNavigate(parent(state.path))}>
             <span className="n">

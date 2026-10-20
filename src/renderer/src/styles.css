@@ -1174,3 +1174,13 @@ textarea.input {
   letter-spacing: 0.6px;
   padding: 4px 10px 2px;
 }
+
+.source-picker .input {
+  height: 30px;
+  margin: 2px 2px 6px;
+  width: calc(100% - 4px);
+}
+
+.source-picker {
+  max-height: 70vh;
+}
