@@ -13,7 +13,7 @@ const pt = {
   localTerminal: 'Terminal local',
   serial: 'Serial',
   importSshConfig: 'Importar ~/.ssh/config',
-  imported: 'hosts importados',
+  imported: "Importado",
   connect: 'Conectar',
   sftp: 'SFTP',
   edit: 'Editar',
@@ -189,7 +189,10 @@ const pt = {
   sc_snippets: "Abrir snippets",
   sc_sftp: "Abrir SFTP do host atual",
   sc_settings: "Abrir configurações",
-  interrupted: "interrompida"
+  interrupted: "interrompida",
+  alreadyPresent: "já existiam",
+  deleteImportFile: "O arquivo importado contém senhas e chaves em texto puro: apague-o.",
+  importHint: "Aceita um backup do OpenTerm Hub ou um arquivo de migração com senhas e chaves (docs/IMPORT.md)."
 }
 
 type Dict = typeof pt
@@ -208,7 +211,7 @@ const en: Dict = {
   localTerminal: 'Local terminal',
   serial: 'Serial',
   importSshConfig: 'Import ~/.ssh/config',
-  imported: 'hosts imported',
+  imported: "Imported",
   connect: 'Connect',
   sftp: 'SFTP',
   edit: 'Edit',
@@ -384,7 +387,10 @@ const en: Dict = {
   sc_snippets: "Open snippets",
   sc_sftp: "Open SFTP for current host",
   sc_settings: "Open settings",
-  interrupted: "interrupted"
+  interrupted: "interrupted",
+  alreadyPresent: "already present",
+  deleteImportFile: "The imported file holds passwords and keys in plain text: delete it.",
+  importHint: "Accepts an OpenTerm Hub backup or a migration file with passwords and keys (docs/IMPORT.md)."
 }
 
 const dicts = { pt, en }

@@ -186,6 +186,15 @@ export interface HostKeyPrompt {
   previous?: string
 }
 
+export interface ImportSummary {
+  hosts: number
+  keys: number
+  snippets: number
+  knownHosts: number
+  skipped: number
+  errors: string[]
+}
+
 export interface CredentialPrompt {
   promptId: string
   title: string
@@ -242,7 +251,8 @@ export interface OpenTermApi {
   deleteKnownHost(host: string, port: number): Promise<void>
   saveSettings(s: Partial<Settings>): Promise<Settings>
   exportBackup(): Promise<boolean>
-  importBackup(): Promise<boolean>
+  /** A backup ('backup') or a migration file with secrets (summary); null when cancelled. */
+  importBackup(): Promise<ImportSummary | 'backup' | null>
 
   openSession(target: SessionTarget, cols: number, rows: number): Promise<SessionInfo>
   writeSession(id: string, data: string): void

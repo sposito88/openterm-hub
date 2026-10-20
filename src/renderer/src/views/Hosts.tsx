@@ -103,7 +103,7 @@ export function Hosts() {
 
   const importConfig = async (): Promise<void> => {
     const n = await attempt(() => api.importSshConfig())
-    if (n !== undefined) toast(`${n} ${t('imported')}`)
+    if (n !== undefined) toast(`${t('imported')}: ${n} hosts`)
   }
 
   const remove = async (h: Host): Promise<void> => {

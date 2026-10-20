@@ -346,8 +346,23 @@ function BackupSection() {
         </button>
       </div>
       <div className="setting-row">
-        <span>{t('importBackup')}</span>
-        <button className="btn" onClick={async () => (await attempt(() => api.importBackup())) && toast('OK')}>
+        <div>
+          <div className="label">{t('importBackup')}</div>
+          <div className="hint">{t('importHint')}</div>
+        </div>
+        <button
+          className="btn"
+          onClick={async () => {
+            const res = await attempt(() => api.importBackup())
+            if (!res) return
+            if (res === 'backup') return toast('OK')
+            const msg = `${t('imported')}: ${res.hosts} hosts, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets, ${res.knownHosts} known hosts (${res.skipped} ${t('alreadyPresent')})`
+            toast(msg)
+            for (const e of res.errors.slice(0, 5)) toast(e, true)
+            if (res.errors.length > 5) toast(`+${res.errors.length - 5} ${t('error').toLowerCase()}`, true)
+            toast(t('deleteImportFile'), true)
+          }}
+        >
           <Icon name="import" /> {t('importBackup')}
         </button>
       </div>
@@ -367,7 +382,7 @@ function AboutSection() {
     <div className="panel">
       <div className="setting-row">
         <div>
-          <div className="label">OpenTerm Hub 0.1.0</div>
+          <div className="label">OpenTerm Hub 0.1.1</div>
           <div className="hint">{t('aboutText')}</div>
         </div>
       </div>

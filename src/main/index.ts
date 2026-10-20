@@ -7,6 +7,7 @@ import type { Host, HostInput, OpenTermApi, SessionTarget } from '@shared/types'
 import { suggest } from './complete'
 import { figSpecs } from './figspecs'
 import { Forwarding } from './forwarding'
+import { importFile, isImportFile } from './importer'
 import { generateKey, importKey, installKeyOnHost } from './keys'
 import { Logs } from './logs'
 import { Prompts } from './prompts'
@@ -263,9 +264,11 @@ app.whenReady().then(() => {
     },
     importBackup: async () => {
       const res = await dialog.showOpenDialog(win!, { filters: [{ name: 'JSON', extensions: ['json'] }], properties: ['openFile'] })
-      if (res.canceled) return false
-      store.importBackup(JSON.parse(readFileSync(res.filePaths[0], 'utf8')))
-      return true
+      if (res.canceled) return null
+      const raw: unknown = JSON.parse(readFileSync(res.filePaths[0], 'utf8'))
+      if (isImportFile(raw)) return store.batch(() => importFile(store, raw))
+      store.importBackup(raw)
+      return 'backup'
     },
     openSession: (target: SessionTarget, cols, rows) => sessions.open(target, cols, rows),
     writeSession: (id, data) => sessions.write(id, data),

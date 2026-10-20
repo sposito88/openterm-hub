@@ -21,6 +21,7 @@ Cliente SSH de desktop, open source (MIT), feito com Electron. Organiza seus hos
 | **Autocomplete** | Sugestões de comandos, subcomandos e opções (mais de 1400 ferramentas, via specs do [Fig](https://github.com/withfig/autocomplete)), do seu histórico, do histórico importado do bash/zsh/fish e dos snippets. Tab aceita, ↑/↓ navegam, Esc fecha. |
 | **Logs** | Histórico de conexões (quando, para onde, duração e como terminou) e, se ativado, gravação da saída das sessões, que pode ser revista depois. |
 | **Atalhos** | Todos configuráveis em Configurações → Atalhos: trocar de aba (Ctrl+1…9, Alt+←/→), fechar aba, copiar, colar, selecionar tudo, buscar, zoom da fonte, abrir terminal local, serial, SFTP, port forwarding, snippets e configurações. |
+| **Migração** | Importa hosts, senhas, chaves, snippets e known hosts de um arquivo JSON documentado ([docs/IMPORT.md](docs/IMPORT.md)), além do `~/.ssh/config`. |
 | **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup em JSON (sem segredos). |
 
 <p>

@@ -59,6 +59,8 @@ export class Store {
   private data: Data
   private secrets: Record<string, string>
   private listeners = new Set<() => void>()
+  private batching = false
+  private dirty = false
 
   constructor() {
     mkdirSync(this.dir, { recursive: true })
@@ -79,8 +81,26 @@ export class Store {
   }
 
   private commit(): void {
+    if (this.batching) {
+      this.dirty = true
+      return
+    }
     writeJson(this.dataFile, this.data)
     for (const cb of this.listeners) cb()
+  }
+
+  /** Runs many changes with a single write (and a single UI refresh) at the end. */
+  batch<T>(fn: () => T): T {
+    this.batching = true
+    try {
+      return fn()
+    } finally {
+      this.batching = false
+      if (this.dirty) {
+        this.dirty = false
+        this.commit()
+      }
+    }
   }
 
   snapshot(): Snapshot {
@@ -151,6 +171,10 @@ export class Store {
   }
 
   // ---- keys ----------------------------------------------------------------
+
+  keys(): SshKey[] {
+    return this.data.keys
+  }
 
   key(id: string): SshKey | undefined {
     return this.data.keys.find((k) => k.id === id)
