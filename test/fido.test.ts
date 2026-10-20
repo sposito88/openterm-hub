@@ -123,12 +123,13 @@ test('logs in to OpenSSH with a FIDO2 security key held by ssh-agent', { skip },
   if (sshdExited) return t.skip('sshd could not start here')
   const host = {
     id: 'fido', label: 'fido', group: '', hostname: '127.0.0.1', port, username: userInfo().username, protocol: 'ssh' as const,
-    hasPassword: false, keyId: null, useAgent: true, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
+    hasPassword: false, keyId: null, identityId: null, useAgent: true, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
   }
   const deps = {
     store: {
       host: () => host,
       getSecret: () => undefined,
+      credentials: () => ({ username: host.username, password: undefined, keyId: null }),
       knownHost: () => undefined,
       trustHost: () => {},
       settings: () => ({ keepaliveSeconds: 0 })
@@ -154,10 +155,10 @@ test('OpenSSH refuses a security-key signature made without a touch', { skip }, 
   try {
     const host = {
       id: 'fido', label: 'fido', group: '', hostname: '127.0.0.1', port, username: userInfo().username, protocol: 'ssh' as const,
-      hasPassword: false, keyId: null, useAgent: true, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
+      hasPassword: false, keyId: null, identityId: null, useAgent: true, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
     }
     const deps = {
-      store: { host: () => host, getSecret: () => undefined, knownHost: () => undefined, trustHost: () => {}, settings: () => ({ keepaliveSeconds: 0 }) },
+      store: { host: () => host, getSecret: () => undefined, credentials: () => ({ username: host.username, password: undefined, keyId: null }), knownHost: () => undefined, trustHost: () => {}, settings: () => ({ keepaliveSeconds: 0 }) },
       prompts: { hostKey: async () => true, credentials: async () => null, notice: () => {} }
     } as unknown as SshDeps
     await assert.rejects(connectHost(deps, 'fido'), /authentication methods failed/)

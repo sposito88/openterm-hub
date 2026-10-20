@@ -1184,3 +1184,95 @@ textarea.input {
 .source-picker {
   max-height: 70vh;
 }
+
+.font-preview {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--term-bg);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connect-host {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 24px;
+}
+
+.connect-host h3 {
+  margin: 6px 0 0;
+  font-size: 16px;
+}
+
+.connect-host p {
+  max-width: 280px;
+  margin: 0 0 8px;
+}
+
+.connect-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+
+.crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.crumbs:hover {
+  border-color: var(--border);
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+}
+
+.crumb button {
+  border: 0;
+  background: none;
+  padding: 2px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+}
+
+.crumb button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.crumb button.current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.crumb .sep {
+  color: var(--text-dim);
+  padding: 0 1px;
+}

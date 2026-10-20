@@ -16,6 +16,9 @@ Em **Configurações → Backup → Importar backup**, o OpenTerm Hub aceita doi
   "keys": [
     { "ref": "k1", "label": "deploy", "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\n…", "passphrase": "opcional" }
   ],
+  "identities": [
+    { "ref": "i1", "label": "deploy (produção)", "username": "deploy", "password": "opcional", "keyRef": "k1" }
+  ],
   "snippets": [
     { "ref": "s1", "label": "Uptime", "script": "uptime" }
   ],
@@ -29,6 +32,7 @@ Em **Configurações → Backup → Importar backup**, o OpenTerm Hub aceita doi
       "username": "ops",
       "password": "opcional",
       "keyRef": "k1",
+      "identityRef": "i1",
       "protocol": "ssh",
       "agentForward": false,
       "jumpHostRef": "h0",
@@ -44,7 +48,8 @@ Em **Configurações → Backup → Importar backup**, o OpenTerm Hub aceita doi
 
 | Campo | Observações |
 |---|---|
-| `ref` | Identificador livre, usado só para ligar itens dentro do arquivo (`keyRef`, `jumpHostRef`, `snippetRef`). |
+| `ref` | Identificador livre, usado só para ligar itens dentro do arquivo (`keyRef`, `identityRef`, `jumpHostRef`, `snippetRef`). |
+| `identityRef` | Login reaproveitável (usuário, senha e chave). Quando presente, `username`, `password` e `keyRef` do host são ignorados. |
 | `privateKey` | Formatos OpenSSH, PEM (RSA/ECDSA) ou PuTTY `.ppk` v2. |
 | `group` | Texto livre. Para grupos aninhados, use `"Pai / Filho"`. |
 | `protocol` | `ssh` (padrão), `mosh` ou `telnet`. |
@@ -56,7 +61,8 @@ Importar o mesmo arquivo duas vezes não duplica nada:
 
 - **Chaves:** iguais pela fingerprint são reaproveitadas.
 - **Snippets:** iguais pelo texto do comando são reaproveitados.
-- **Hosts:** só uma cópia **idêntica** (endereço, porta, usuário, nome, grupo e senha) é ignorada. Entradas do mesmo servidor com outro nome, grupo ou senha são mantidas.
+- **Identidades:** iguais em usuário, senha e chave são reaproveitadas.
+- **Hosts:** só uma cópia **idêntica** (endereço, porta, nome, grupo e o login efetivo, usuário e senha) é ignorada. Entradas do mesmo servidor com outro nome, grupo ou senha são mantidas. Se o host já existe com o mesmo login e o arquivo traz uma identidade para ele, o host é **vinculado** à identidade em vez de duplicado.
 - **Known hosts:** se o host já tem uma fingerprint confiável, ela é mantida.
 
 No fim, o app mostra quantos itens foram importados e lista os que falharam, citando apenas o nome, nunca o conteúdo secreto.

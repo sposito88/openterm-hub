@@ -213,3 +213,22 @@ test('launching an external program never hangs the caller', async () => {
   assert.ok(Date.now() - t0 < 1000)
   await assert.rejects(launch(Promise.reject(new Error('ENOENT')), 50))
 })
+
+test('breadcrumbs for POSIX and Windows paths', async () => {
+  const { crumbs } = await import('../src/renderer/src/paths')
+  assert.deepEqual(crumbs('/l/disk0/asposito'), [
+    { label: '/', path: '/' },
+    { label: 'l', path: '/l' },
+    { label: 'disk0', path: '/l/disk0' },
+    { label: 'asposito', path: '/l/disk0/asposito' }
+  ])
+  assert.deepEqual(crumbs('/'), [{ label: '/', path: '/' }])
+  assert.deepEqual(crumbs('C:\\Users\\Ana'), [
+    { label: 'C:', path: 'C:\\' },
+    { label: 'Users', path: 'C:\\Users' },
+    { label: 'Ana', path: 'C:\\Users\\Ana' }
+  ])
+  const long = crumbs('/a/b/c/d/e/f/g', 3)
+  assert.deepEqual(long.map((c) => c.label), ['/', '…', 'e', 'f', 'g'])
+  assert.equal(long[1].path, '/a/b/c/d')
+})

@@ -6,6 +6,7 @@ import { api } from '../api'
 import { Icon } from '../components/Icon'
 import { useT } from '../i18n'
 import { attempt, useApp, useUiLight } from '../state'
+import { fontStack } from '../fonts'
 import { findTerminalTheme } from '../terminalThemes'
 
 function duration(e: LogEntry): string {
@@ -25,7 +26,7 @@ function Transcript({ entry, onClose }: { entry: LogEntry; onClose(): void }) {
 
   useEffect(() => {
     const theme = findTerminalTheme(settings.terminalTheme, uiLight).colors
-    const term = new Terminal({ disableStdin: true, fontFamily: settings.fontFamily, fontSize: settings.fontSize, scrollback: 100000, theme })
+    const term = new Terminal({ disableStdin: true, fontFamily: fontStack(settings.fontFamily), fontSize: settings.fontSize, scrollback: 100000, theme })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el.current!)

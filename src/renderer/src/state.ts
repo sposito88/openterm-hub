@@ -10,7 +10,7 @@ import type {
 import { api, errorMessage } from './api'
 import { translate } from './i18n'
 
-export type View = 'hosts' | 'keys' | 'forwards' | 'snippets' | 'knownHosts' | 'logs' | 'settings'
+export type View = 'hosts' | 'identities' | 'keys' | 'forwards' | 'snippets' | 'knownHosts' | 'logs' | 'settings'
 export type SettingsSection = 'terminal' | 'appearance' | 'sftp' | 'shortcuts' | 'logs' | 'backup' | 'about'
 
 export interface Tab {

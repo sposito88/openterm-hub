@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import type { Settings, Suggestion } from '@shared/types'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
+import { ensureFontLoaded, fontStack } from '../fonts'
 import { translate, useT } from '../i18n'
 import { LineTracker } from '../lineTracker'
 import { subscribe, tabSessions, terminalActions } from '../sessionBus'
@@ -35,8 +38,11 @@ interface Popup {
 
 function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
   return {
-    fontFamily: s.fontFamily,
+    fontFamily: fontStack(s.fontFamily),
     fontSize: s.fontSize,
+    wordSeparator: s.wordSeparator,
+    // Wide glyphs from fallback fonts are squeezed into their cell instead of overlapping.
+    rescaleOverlappingGlyphs: true,
     cursorStyle: s.cursorStyle,
     scrollback: s.scrollback,
     drawBoldTextInBrightColors: s.boldBright,
@@ -88,6 +94,23 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
     term.loadAddon(search)
     term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)))
     term.open(hostEl.current!)
+    // WebGL draws box-drawing and block characters itself, pixel exact, so ASCII art
+    // and TUIs line up whatever font is used. Falls back to the DOM renderer.
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      term.loadAddon(webgl)
+    } catch {
+      // No WebGL (e.g. GPU blocklisted): the DOM renderer keeps working.
+    }
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = '11'
+    // Measure cells again once the web font is really loaded.
+    void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then(() => {
+      if (disposed) return
+      term.options.fontFamily = fontStack(settingsRef.current.fontFamily)
+      if (hostEl.current && hostEl.current.offsetWidth > 0) fit.fit()
+    })
     termRef.current = term
     fitRef.current = fit
     searchRef.current = search
@@ -317,8 +340,15 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
   useEffect(() => {
     const term = termRef.current
     if (!term) return
-    Object.assign(term.options, termOptions(settings, uiLight))
-    if (hostEl.current!.offsetWidth > 0) fitRef.current?.fit()
+    let cancelled = false
+    void ensureFontLoaded(settings.fontFamily, settings.fontSize).then(() => {
+      if (cancelled) return
+      Object.assign(term.options, termOptions(settings, uiLight))
+      if (hostEl.current && hostEl.current.offsetWidth > 0) fitRef.current?.fit()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [settings, uiLight])
 
   useEffect(() => {

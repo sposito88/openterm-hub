@@ -6,6 +6,7 @@ import {
   DEFAULT_SETTINGS,
   type ForwardRule,
   type Host,
+  type Identity,
   type KnownHost,
   type Settings,
   type Snapshot,
@@ -15,6 +16,7 @@ import {
 
 interface Data {
   hosts: Host[]
+  identities: Identity[]
   keys: SshKey[]
   snippets: Snippet[]
   forwards: ForwardRule[]
@@ -28,6 +30,7 @@ const HISTORY_LIMIT = 2000
 function emptyData(): Data {
   return {
     hosts: [],
+    identities: [],
     keys: [],
     snippets: [],
     forwards: [],
@@ -67,7 +70,11 @@ export class Store {
     const loaded = readJson<Partial<Data>>(this.dataFile, {})
     const settings = { ...DEFAULT_SETTINGS, ...loaded.settings }
     settings.shortcuts = { ...DEFAULT_SETTINGS.shortcuts, ...loaded.settings?.shortcuts }
+    // The old default stack: the font is now bundled, so keep just its name.
+    if (settings.fontFamily === "'JetBrains Mono', 'DejaVu Sans Mono', monospace") settings.fontFamily = 'JetBrains Mono'
     this.data = { ...emptyData(), ...loaded, settings }
+    // Hosts saved before identities existed.
+    this.data.hosts = this.data.hosts.map((h) => ({ ...h, identityId: h.identityId ?? null }))
     this.secrets = readJson<Record<string, string>>(this.secretsFile, {})
   }
 
@@ -104,8 +111,8 @@ export class Store {
   }
 
   snapshot(): Snapshot {
-    const { hosts, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { hosts, keys, snippets, forwards, knownHosts, settings, secureStorage: this.secureStorage }
+    const { hosts, identities, keys, snippets, forwards, knownHosts, settings } = this.data
+    return { hosts, identities, keys, snippets, forwards, knownHosts, settings, secureStorage: this.secureStorage }
   }
 
   // ---- secrets -------------------------------------------------------------
@@ -130,7 +137,7 @@ export class Store {
 
   // ---- generic collections -------------------------------------------------
 
-  private upsert<K extends 'hosts' | 'keys' | 'snippets' | 'forwards'>(
+  private upsert<K extends 'hosts' | 'identities' | 'keys' | 'snippets' | 'forwards'>(
     key: K,
     item: Omit<Data[K][number], 'id'> & { id?: string }
   ): Data[K][number] {
@@ -143,7 +150,7 @@ export class Store {
     return full
   }
 
-  private remove(key: 'hosts' | 'keys' | 'snippets' | 'forwards', id: string): void {
+  private remove(key: 'hosts' | 'identities' | 'keys' | 'snippets' | 'forwards', id: string): void {
     const list = this.data[key] as Array<{ id: string }>
     this.data[key] = list.filter((x) => x.id !== id) as never
   }
@@ -170,6 +177,42 @@ export class Store {
     this.commit()
   }
 
+  // ---- identities ------------------------------------------------------------
+
+  identities(): Identity[] {
+    return this.data.identities
+  }
+
+  identity(id: string): Identity | undefined {
+    return this.data.identities.find((i) => i.id === id)
+  }
+
+  saveIdentity(identity: Omit<Identity, 'id'> & { id?: string }): Identity {
+    return this.upsert('identities', identity)
+  }
+
+  /** Hosts using it get its username copied in, so they still know who to log in as. */
+  deleteIdentity(id: string): void {
+    const identity = this.identity(id)
+    this.remove('identities', id)
+    for (const h of this.data.hosts) {
+      if (h.identityId !== id) continue
+      h.identityId = null
+      if (identity && !h.username) h.username = identity.username
+    }
+    this.setSecret(`identity:${id}:password`, undefined)
+    this.commit()
+  }
+
+  /** Effective login of a host: its identity's when it has one, otherwise its own. */
+  credentials(host: Host): { username: string; password: string | undefined; keyId: string | null } {
+    const identity = host.identityId ? this.identity(host.identityId) : undefined
+    if (identity) {
+      return { username: identity.username, password: this.getSecret(`identity:${identity.id}:password`), keyId: identity.keyId }
+    }
+    return { username: host.username, password: this.getSecret(`host:${host.id}:password`), keyId: host.keyId }
+  }
+
   // ---- keys ----------------------------------------------------------------
 
   keys(): SshKey[] {
@@ -187,6 +230,7 @@ export class Store {
   deleteKey(id: string): void {
     this.remove('keys', id)
     for (const h of this.data.hosts) if (h.keyId === id) h.keyId = null
+    for (const i of this.data.identities) if (i.keyId === id) i.keyId = null
     this.setSecret(`key:${id}:private`, undefined)
     this.setSecret(`key:${id}:passphrase`, undefined)
     this.commit()
@@ -272,8 +316,8 @@ export class Store {
 
   /** Backup without any secret (passwords, private keys). */
   exportBackup(): object {
-    const { hosts, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { format: 'openterm-hub-backup', version: 1, hosts, keys, snippets, forwards, knownHosts, settings }
+    const { hosts, identities, keys, snippets, forwards, knownHosts, settings } = this.data
+    return { format: 'openterm-hub-backup', version: 1, hosts, identities, keys, snippets, forwards, knownHosts, settings }
   }
 
   importBackup(raw: unknown): void {
@@ -284,7 +328,14 @@ export class Store {
       for (const x of inc ?? []) map.set(x.id, { ...map.get(x.id), ...x })
       return [...map.values()]
     }
-    this.data.hosts = merge(this.data.hosts, b.hosts?.map((h) => ({ ...h, hasPassword: !!this.getSecret(`host:${h.id}:password`) })))
+    this.data.identities = merge(
+      this.data.identities,
+      b.identities?.map((i) => ({ ...i, hasPassword: !!this.getSecret(`identity:${i.id}:password`) }))
+    )
+    this.data.hosts = merge(
+      this.data.hosts,
+      b.hosts?.map((h) => ({ ...h, identityId: h.identityId ?? null, hasPassword: !!this.getSecret(`host:${h.id}:password`) }))
+    )
     this.data.keys = merge(this.data.keys, b.keys)
     this.data.snippets = merge(this.data.snippets, b.snippets)
     this.data.forwards = merge(this.data.forwards, b.forwards)

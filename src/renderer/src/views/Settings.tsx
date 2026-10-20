@@ -9,7 +9,8 @@ import {
   SHORTCUT_ACTIONS,
   type ShortcutAction
 } from '@shared/shortcuts'
-import { TERM_TYPES, type FileAssociation, type Settings as SettingsT } from '@shared/types'
+import { TERM_TYPES, WORD_SEPARATORS, type FileAssociation, type Settings as SettingsT } from '@shared/types'
+import { BUNDLED_FONTS, fontStack, systemMonospaceFonts } from '../fonts'
 import { api } from '../api'
 import { Icon, type IconName } from '../components/Icon'
 import { useT, type TKey } from '../i18n'
@@ -61,6 +62,117 @@ function ThemePreview({ theme }: { theme: TerminalTheme }) {
   )
 }
 
+const CUSTOM = '__custom__'
+const FONT_PREVIEW = 'deploy@web-01:~$ ls -la  0O 1lI {}[]  ═║╔╗ █▓▒░ → ✓'
+
+/** Bundled fonts, monospace fonts installed on this computer, or a custom CSS stack. */
+function FontPicker({ s }: { s: SettingsT }) {
+  const t = useT()
+  const [system, setSystem] = useState<string[]>([])
+  const known = BUNDLED_FONTS.includes(s.fontFamily) || system.includes(s.fontFamily)
+  const [custom, setCustom] = useState(!s.fontFamily || s.fontFamily.includes(','))
+  useEffect(() => void systemMonospaceFonts().then(setSystem), [])
+  const value = custom || !known ? CUSTOM : s.fontFamily
+  return (
+    <>
+      <Row label={t('fontFamily')}>
+        <select
+          className="input"
+          style={{ width: 300 }}
+          value={value}
+          onChange={(e) => {
+            if (e.target.value === CUSTOM) return setCustom(true)
+            setCustom(false)
+            save({ fontFamily: e.target.value })
+          }}
+        >
+          <optgroup label={t('bundledFonts')}>
+            {BUNDLED_FONTS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </optgroup>
+          {system.length > 0 && (
+            <optgroup label={t('systemFonts')}>
+              {system.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <option value={CUSTOM}>{t('customFont')}</option>
+        </select>
+      </Row>
+      {value === CUSTOM && (
+        <Row label={t('customFont')} hint={t('customFontHint')}>
+          <input
+            className="input mono"
+            style={{ width: 300 }}
+            defaultValue={known ? '' : s.fontFamily}
+            placeholder="'Minha Fonte', monospace"
+            onBlur={(e) => e.target.value.trim() && save({ fontFamily: e.target.value.trim() })}
+          />
+        </Row>
+      )}
+      <div className="font-preview" style={{ fontFamily: fontStack(s.fontFamily), fontSize: s.fontSize }}>
+        {FONT_PREVIEW}
+      </div>
+    </>
+  )
+}
+
+/** Double-click word separators: xterm default, PuTTY style or custom characters. */
+function WordSeparatorRow({ s }: { s: SettingsT }) {
+  const t = useT()
+  const [editing, setEditing] = useState(false)
+  const matched = s.wordSeparator === WORD_SEPARATORS.default ? 'default' : s.wordSeparator === WORD_SEPARATORS.putty ? 'putty' : 'custom'
+  const preset = editing ? 'custom' : matched
+  const [draft, setDraft] = useState(s.wordSeparator)
+  useEffect(() => setDraft(s.wordSeparator), [s.wordSeparator])
+  return (
+    <>
+      <Row label={t('wordSeparator')} hint={t('wordSeparatorHint')}>
+        <div className="segmented">
+          <button
+            className={preset === 'default' ? 'on' : ''}
+            onClick={() => {
+              setEditing(false)
+              save({ wordSeparator: WORD_SEPARATORS.default })
+            }}
+          >
+            {t('wsDefault')}
+          </button>
+          <button
+            className={preset === 'putty' ? 'on' : ''}
+            onClick={() => {
+              setEditing(false)
+              save({ wordSeparator: WORD_SEPARATORS.putty })
+            }}
+          >
+            PuTTY
+          </button>
+          <button className={preset === 'custom' ? 'on' : ''} onClick={() => setEditing(true)}>
+            {t('wsCustom')}
+          </button>
+        </div>
+      </Row>
+      {preset === 'custom' && (
+        <Row label={t('wsCharacters')}>
+          <input
+            className="input mono"
+            style={{ width: 300 }}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => draft && save({ wordSeparator: draft })}
+          />
+        </Row>
+      )}
+    </>
+  )
+}
+
 function TerminalSection({ s }: { s: SettingsT }) {
   const t = useT()
   const uiLight = useUiLight()
@@ -73,6 +185,7 @@ function TerminalSection({ s }: { s: SettingsT }) {
         <ToggleRow label={t('autoReconnect')} value={s.autoReconnect} onChange={(v) => save({ autoReconnect: v })} />
         <ToggleRow label={t('importShellHistory')} hint={t('importShellHistoryHint')} value={s.importShellHistory} onChange={(v) => save({ importShellHistory: v })} />
         <ToggleRow label={t('copyOnSelectLabel')} value={s.copyOnSelect} onChange={(v) => save({ copyOnSelect: v })} />
+        <WordSeparatorRow s={s} />
         <ToggleRow label={t('bellSound')} value={s.bellSound} onChange={(v) => save({ bellSound: v })} />
         <ToggleRow label={t('boldBright')} value={s.boldBright} onChange={(v) => save({ boldBright: v })} />
         <Row label={t('termType')}>
@@ -98,14 +211,7 @@ function TerminalSection({ s }: { s: SettingsT }) {
       </div>
 
       <div className="panel">
-        <Row label={t('fontFamily')}>
-          <input
-            className="input"
-            style={{ width: 300 }}
-            defaultValue={s.fontFamily}
-            onBlur={(e) => e.target.value.trim() && save({ fontFamily: e.target.value })}
-          />
-        </Row>
+        <FontPicker s={s} />
         <Row label={t('textSize')}>
           <div className="stepper">
             <button className="btn icon" onClick={() => save({ fontSize: Math.max(8, s.fontSize - 1) })}>
@@ -356,7 +462,8 @@ function BackupSection() {
             const res = await attempt(() => api.importBackup())
             if (!res) return
             if (res === 'backup') return toast('OK')
-            const msg = `${t('imported')}: ${res.hosts} hosts, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets, ${res.knownHosts} known hosts (${res.skipped} ${t('alreadyPresent')})`
+            const linked = res.linked ? `, ${res.linked} ${t('linkedToIdentity')}` : ''
+            const msg = `${t('imported')}: ${res.hosts} hosts, ${res.identities} ${t('identities').toLowerCase()}, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets, ${res.knownHosts} known hosts${linked} (${res.skipped} ${t('alreadyPresent')})`
             toast(msg)
             for (const e of res.errors.slice(0, 5)) toast(e, true)
             if (res.errors.length > 5) toast(`+${res.errors.length - 5} ${t('error').toLowerCase()}`, true)
@@ -382,7 +489,7 @@ function AboutSection() {
     <div className="panel">
       <div className="setting-row">
         <div>
-          <div className="label">OpenTerm Hub 0.2.3</div>
+          <div className="label">OpenTerm Hub 0.3.0</div>
           <div className="hint">{t('aboutText')}</div>
         </div>
       </div>

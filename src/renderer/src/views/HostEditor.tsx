@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import type { Host, HostInput, Protocol } from '@shared/types'
 import { api } from '../api'
+import { Icon } from '../components/Icon'
 import { Check, Drawer, Field, FormActions } from '../components/ui'
 import { useT } from '../i18n'
 import { attempt, useApp } from '../state'
+import { IdentityEditor } from './Identities'
 
 const DEFAULT_PORT: Record<Protocol, number> = { ssh: 22, mosh: 22, telnet: 23 }
 
@@ -19,6 +21,7 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
     username: host?.username ?? '',
     protocol: host?.protocol ?? 'ssh',
     keyId: host?.keyId ?? null,
+    identityId: host?.identityId ?? null,
     useAgent: host?.useAgent ?? true,
     agentForward: host?.agentForward ?? false,
     jumpHostId: host?.jumpHostId ?? null,
@@ -28,6 +31,8 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
   const [password, setPassword] = useState('')
   const [clearPassword, setClearPassword] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [newIdentity, setNewIdentity] = useState(false)
+  const identity = form.identityId ? snap.identities.find((i) => i.id === form.identityId) : undefined
   const set = <K extends keyof HostInput>(k: K, v: HostInput[K]): void => setForm((f) => ({ ...f, [k]: v }))
   const groups = [...new Set(snap.hosts.map((h) => h.group).filter(Boolean))]
 
@@ -81,25 +86,54 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
           </div>
         </div>
         {form.protocol !== 'ssh' && <p className="note">{t('moshNote')}</p>}
-        <Field label={t('username')}>
-          <input className="input" value={form.username} onChange={(e) => set('username', e.target.value)} />
+        <Field label={t('identity')}>
+          <select className="input" value={form.identityId ?? ''} onChange={(e) => set('identityId', e.target.value || null)}>
+            <option value="">{t('identityNone')}</option>
+            {[...snap.identities]
+              .sort((a, b) => a.label.localeCompare(b.label))
+              .map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.label} ({i.username})
+                </option>
+              ))}
+          </select>
         </Field>
+        {identity ? (
+          <p className="note">
+            {t('fromIdentity')} <b>{identity.label}</b> ({identity.username}).
+          </p>
+        ) : (
+          <>
+            <Field label={t('username')}>
+              <input className="input" value={form.username} onChange={(e) => set('username', e.target.value)} />
+            </Field>
+            {form.protocol === 'ssh' && (
+              <>
+                <Field label={host?.hasPassword ? t('passwordKeep') : t('password')}>
+                  <input className="input" type="password" value={password} disabled={clearPassword} onChange={(e) => setPassword(e.target.value)} />
+                </Field>
+                {host?.hasPassword && <Check label={t('removePassword')} checked={clearPassword} onChange={setClearPassword} />}
+                <Field label={t('key')}>
+                  <select className="input" value={form.keyId ?? ''} onChange={(e) => set('keyId', e.target.value || null)}>
+                    <option value="">{t('none')}</option>
+                    {snap.keys.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.label} ({k.type})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            )}
+            {form.username.trim() && (
+              <button type="button" className="btn small" style={{ marginBottom: 12 }} onClick={() => setNewIdentity(true)}>
+                <Icon name="user" /> {t('saveAsIdentity')}
+              </button>
+            )}
+          </>
+        )}
         {form.protocol === 'ssh' && (
           <>
-            <Field label={host?.hasPassword ? t('passwordKeep') : t('password')}>
-              <input className="input" type="password" value={password} disabled={clearPassword} onChange={(e) => setPassword(e.target.value)} />
-            </Field>
-            {host?.hasPassword && <Check label={t('removePassword')} checked={clearPassword} onChange={setClearPassword} />}
-            <Field label={t('key')}>
-              <select className="input" value={form.keyId ?? ''} onChange={(e) => set('keyId', e.target.value || null)}>
-                <option value="">{t('none')}</option>
-                {snap.keys.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.label} ({k.type})
-                  </option>
-                ))}
-              </select>
-            </Field>
             <Field label={t('jumpHost')}>
               <select className="input" value={form.jumpHostId ?? ''} onChange={(e) => set('jumpHostId', e.target.value || null)}>
                 <option value="">{t('none')}</option>
@@ -135,6 +169,14 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
         </Field>
         <FormActions onCancel={onClose} busy={busy} />
       </form>
+      {newIdentity && (
+        <IdentityEditor
+          identity={null}
+          initial={{ label: form.username, username: form.username, password: password || undefined, keyId: form.keyId }}
+          onClose={() => setNewIdentity(false)}
+          onSaved={(i) => set('identityId', i.id)}
+        />
+      )}
     </Drawer>
   )
 }

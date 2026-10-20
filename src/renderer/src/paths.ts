@@ -33,3 +33,26 @@ export function parent(path: string): string {
   const up = p.slice(0, cut)
   return /^[A-Za-z]:$/.test(up) ? up + '\\' : up
 }
+
+export interface Crumb {
+  label: string
+  path: string
+}
+
+/**
+ * Breadcrumb segments of a POSIX or Windows path, each with the path it opens.
+ * Long paths keep the root and the last `keep` folders, with "…" in between.
+ */
+export function crumbs(path: string, keep = 4): Crumb[] {
+  const win = /^[A-Za-z]:/.test(path)
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  const out: Crumb[] = win ? [] : [{ label: '/', path: '/' }]
+  let acc = ''
+  for (const [i, part] of parts.entries()) {
+    acc = win ? (i === 0 ? `${part}\\` : `${acc.replace(/\\$/, '')}\\${part}`) : `${acc}/${part}`
+    out.push({ label: part, path: acc })
+  }
+  if (out.length <= keep + 1) return out
+  const hidden = out[out.length - keep - 1]
+  return [out[0], { label: '…', path: hidden.path }, ...out.slice(-keep)]
+}

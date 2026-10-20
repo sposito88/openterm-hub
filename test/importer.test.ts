@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 import { utils } from 'ssh2'
-import type { Host, KnownHost, Snippet, SshKey } from '../src/shared/types'
+import type { Host, Identity, KnownHost, Snippet, SshKey } from '../src/shared/types'
 import { importFile, type ImportFile } from '../src/main/importer'
 
 function fakeStore() {
   const hosts: Host[] = []
+  const identities: Identity[] = []
   const keys: SshKey[] = []
   const snippets: Snippet[] = []
   const known: KnownHost[] = []
@@ -22,6 +23,15 @@ function fakeStore() {
     hosts: () => hosts,
     host: (id: string) => hosts.find((h) => h.id === id),
     saveHost: (h: Omit<Host, 'id'> & { id?: string }) => upsert(hosts, h),
+    identities: () => identities,
+    identity: (id: string) => identities.find((i) => i.id === id),
+    saveIdentity: (i: Omit<Identity, 'id'>) => upsert(identities, i),
+    credentials(h: Host) {
+      const i = h.identityId ? identities.find((x) => x.id === h.identityId) : undefined
+      return i
+        ? { username: i.username, password: secrets.get(`identity:${i.id}:password`), keyId: i.keyId }
+        : { username: h.username, password: secrets.get(`host:${h.id}:password`), keyId: h.keyId }
+    },
     keys: () => keys,
     saveKey: (k: Omit<SshKey, 'id'>) => upsert(keys, k),
     snippets: () => snippets,
@@ -50,7 +60,7 @@ test('migration import with secrets, refs and de-duplication', () => {
     knownHosts: [{ host: '10.0.0.1', publicKey: pair.public.split(' ').slice(0, 2).join(' ') }]
   }
   const sum = importFile(store as never, file)
-  assert.deepEqual({ ...sum, errors: sum.errors.length }, { hosts: 2, keys: 1, snippets: 1, knownHosts: 1, skipped: 0, errors: 2 })
+  assert.deepEqual({ ...sum, errors: sum.errors.length }, { hosts: 2, identities: 0, linked: 0, keys: 1, snippets: 1, knownHosts: 1, skipped: 0, errors: 2 })
   assert.ok(sum.errors.every((e) => !e.includes('not a key')), 'errors never echo secret content')
   const [bastion, app] = store.hosts()
   assert.equal(store.secrets.get(`host:${bastion.id}:password`), 'pw1')
@@ -64,4 +74,34 @@ test('migration import with secrets, refs and de-duplication', () => {
   const again = importFile(store as never, file)
   assert.equal(again.hosts + again.keys + again.snippets + again.knownHosts, 0)
   assert.equal(store.hosts().length, 2)
+})
+
+test('identities are shared, de-duplicated and link hosts imported before', () => {
+  const store = fakeStore()
+  // An earlier import without identities: the password lives on the host.
+  importFile(store as never, {
+    format: 'openterm-hub-import',
+    version: 1,
+    hosts: [{ label: 'web', group: 'Prod', hostname: '10.0.0.5', username: 'deploy', password: 's3cret' }]
+  })
+  const sum = importFile(store as never, {
+    format: 'openterm-hub-import',
+    version: 1,
+    identities: [
+      { ref: 'i1', label: 'deploy (prod)', username: 'deploy', password: 's3cret' },
+      { ref: 'i2', label: 'same login again', username: 'deploy', password: 's3cret' }
+    ],
+    hosts: [
+      { label: 'web', group: 'Prod', hostname: '10.0.0.5', identityRef: 'i1' },
+      { label: 'api', group: 'Prod', hostname: '10.0.0.6', identityRef: 'i2' }
+    ]
+  })
+  assert.equal(sum.identities, 1, 'two refs with the same login become one identity')
+  assert.equal(sum.linked, 1, 'the existing host is linked, not duplicated')
+  assert.equal(sum.hosts, 1)
+  const [web, api] = store.hosts()
+  assert.equal(web.identityId, store.identities()[0].id)
+  assert.equal(store.secrets.has(`host:${web.id}:password`), false, "the host's own password copy is dropped")
+  assert.equal(api.identityId, web.identityId)
+  assert.deepEqual(store.credentials(api), { username: 'deploy', password: 's3cret', keyId: null })
 })

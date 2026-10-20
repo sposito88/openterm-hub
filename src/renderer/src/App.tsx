@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { comboFromEvent, resolveShortcuts, type ShortcutAction } from '@shared/shortcuts'
 import { api } from './api'
 import { Icon, type IconName } from './components/Icon'
@@ -8,6 +8,7 @@ import { terminalActions } from './sessionBus'
 import { attempt, useApp, useUiLight, wireEvents, type View } from './state'
 import { Forwards } from './views/Forwards'
 import { Hosts, openLocal, openSftp } from './views/Hosts'
+import { Identities } from './views/Identities'
 import { Keys } from './views/Keys'
 import { Logs } from './views/Logs'
 import { KnownHosts, Settings, shortcutRecording } from './views/Settings'
@@ -18,6 +19,7 @@ import { TerminalTab } from './views/TerminalTab'
 const NAV: Array<{ view: View; icon: IconName; label: TKey }> = [
   { view: 'hosts', icon: 'server', label: 'hosts' },
   { view: 'keys', icon: 'key', label: 'keys' },
+  { view: 'identities', icon: 'user', label: 'identities' },
   { view: 'forwards', icon: 'tunnel', label: 'forwards' },
   { view: 'snippets', icon: 'code', label: 'snippets' },
   { view: 'knownHosts', icon: 'shield', label: 'knownHosts' },
@@ -26,6 +28,7 @@ const NAV: Array<{ view: View; icon: IconName; label: TKey }> = [
 
 const VIEWS: Record<View, () => React.JSX.Element> = {
   hosts: Hosts,
+  identities: Identities,
   keys: Keys,
   forwards: Forwards,
   snippets: Snippets,
@@ -107,49 +110,11 @@ function runAction(action: ShortcutAction): boolean {
   return false
 }
 
-/**
- * Host chooser for the SFTP button. It is positioned fixed below the button: the tab bar
- * scrolls horizontally (overflow), which would clip an absolutely positioned menu.
- */
-function SftpPicker({ anchor, onClose }: { anchor: DOMRect; onClose(): void }) {
-  const t = useT()
-  const hosts = useApp((s) => s.snapshot!.hosts).filter((h) => h.protocol === 'ssh')
-  useEffect(() => {
-    const close = (e: MouseEvent): void => {
-      if (!(e.target as Element).closest('.sftp-picker')) onClose()
-    }
-    const id = setTimeout(() => window.addEventListener('mousedown', close))
-    return () => {
-      clearTimeout(id)
-      window.removeEventListener('mousedown', close)
-    }
-  }, [])
-  return (
-    <div className="menu sftp-picker" style={{ position: 'fixed', left: anchor.left, top: anchor.bottom + 4 }}>
-      <div className="dim" style={{ padding: '4px 10px', fontSize: 11 }}>
-        {hosts.length ? t('chooseHost') : t('noSshHosts')}
-      </div>
-      {hosts.map((h) => (
-        <button
-          key={h.id}
-          onClick={() => {
-            onClose()
-            openSftp(h)
-          }}
-        >
-          {h.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export function App() {
   const t = useT()
   const snapshot = useApp((s) => s.snapshot)
   const uiLight = useUiLight()
-  const { view, tabs, activeTab, toasts, setView, activate, closeTab } = useApp()
-  const [sftpPicker, setSftpPicker] = useState<DOMRect | null>(null)
+  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab } = useApp()
 
   useEffect(() => {
     void useApp.getState().refresh()
@@ -197,15 +162,10 @@ export function App() {
           <Icon name="server" />
           <span>{t('vault')}</span>
         </button>
-        <button
-          className="tab"
-          onClick={(e) => setSftpPicker(sftpPicker ? null : e.currentTarget.getBoundingClientRect())}
-          title={translate('chooseHost')}
-        >
+        <button className="tab" onClick={() => openTab('sftp', 'SFTP', { kind: 'local' })} title={translate('newSftpTab')}>
           <Icon name="folder" />
           <span>SFTP</span>
         </button>
-        {sftpPicker && <SftpPicker anchor={sftpPicker} onClose={() => setSftpPicker(null)} />}
         {tabs.map((tab) => (
           <div
             key={tab.id}

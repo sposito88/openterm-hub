@@ -1,9 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type IpcMainInvokeEvent } from 'electron'
 import { spawn } from 'node:child_process'
 import { promises as fsp, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Host, HostInput, OpenTermApi, SessionTarget } from '@shared/types'
+import type { Host, HostInput, Identity, IdentityInput, OpenTermApi, SessionTarget } from '@shared/types'
 import { suggest } from './complete'
 import { figSpecs } from './figspecs'
 import { Forwarding } from './forwarding'
@@ -69,6 +69,7 @@ function cleanHost(input: HostInput, store: Store): Omit<Host, 'id'> & { id?: st
     protocol: input.protocol,
     hasPassword: input.password === undefined ? stored : input.password !== '',
     keyId: input.keyId || null,
+    identityId: input.identityId && store.identity(input.identityId) ? input.identityId : null,
     useAgent: !!input.useAgent,
     agentForward: !!input.agentForward,
     jumpHostId: input.jumpHostId && input.jumpHostId !== id ? input.jumpHostId : null,
@@ -95,6 +96,19 @@ const openWith: Opener = async (file, command) => {
       resolve()
     })
   })
+}
+
+function cleanIdentity(input: IdentityInput, store: Store): Omit<Identity, 'id'> & { id?: string } {
+  if (!input.username.trim()) throw new Error('Informe o usuário')
+  const id = input.id
+  const stored = id ? !!store.getSecret(`identity:${id}:password`) : false
+  return {
+    id,
+    label: input.label.trim() || input.username.trim(),
+    username: input.username.trim(),
+    hasPassword: input.password === undefined ? stored : input.password !== '',
+    keyId: input.keyId && store.key(input.keyId) ? input.keyId : null
+  }
 }
 
 function importSshConfig(store: Store): number {
@@ -139,6 +153,7 @@ function importSshConfig(store: Store): number {
       protocol: 'ssh',
       hasPassword: false,
       keyId: keyFor(e.identityFile),
+      identityId: null,
       useAgent: true,
       agentForward: false,
       jumpHostId: null,
@@ -167,6 +182,7 @@ function importSshConfig(store: Store): number {
           protocol: 'ssh',
           hasPassword: false,
           keyId: null,
+          identityId: null,
           useAgent: true,
           agentForward: false,
           jumpHostId: null,
@@ -186,6 +202,11 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(
     process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null
   )
+  // Only what the UI uses; Electron grants every permission when no handler is set.
+  const ALLOWED_PERMISSIONS = new Set(['local-fonts', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen'])
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(ALLOWED_PERMISSIONS.has(permission)))
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
+
   const store = new Store()
   const prompts = new Prompts(send)
   const deps = { store, prompts }
@@ -219,6 +240,12 @@ app.whenReady().then(() => {
       return host
     },
     deleteHost: (id) => store.deleteHost(id),
+    saveIdentity: (input) => {
+      const identity = store.saveIdentity(cleanIdentity(input, store))
+      if (input.password !== undefined) store.setSecret(`identity:${identity.id}:password`, input.password)
+      return identity
+    },
+    deleteIdentity: (id) => store.deleteIdentity(id),
     importSshConfig: () => importSshConfig(store),
     generateKey: (req) => generateKey(store, req),
     importKey: (req) => importKey(store, req),

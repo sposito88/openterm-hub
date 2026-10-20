@@ -65,7 +65,8 @@ export class Sessions {
     if (target.kind === 'serial') return { title: target.path, target: `${target.path} @ ${target.baudRate}`, protocol: 'serial' }
     const host = this.deps.store.host(target.hostId)
     if (!host) throw new Error('Host não encontrado')
-    const user = host.username ? `${host.username}@` : ''
+    const { username } = this.deps.store.credentials(host)
+    const user = username ? `${username}@` : ''
     return { title: host.label || host.hostname, target: `${user}${host.hostname}:${host.port}`, protocol: host.protocol }
   }
 
@@ -85,7 +86,8 @@ export class Sessions {
         const host = this.deps.store.host(target.hostId)!
         if (host.protocol === 'mosh') {
           // Mosh authenticates through the system ssh, so it uses ~/.ssh config and keys.
-          const dest = host.username ? `${host.username}@${host.hostname}` : host.hostname
+          const { username } = this.deps.store.credentials(host)
+          const dest = username ? `${username}@${host.hostname}` : host.hostname
           session = this.spawnPty(id, 'mosh', [`--ssh=ssh -p ${host.port}`, dest], cols, rows, term)
         } else if (host.protocol === 'telnet') {
           session = this.spawnPty(id, 'telnet', [host.hostname, String(host.port)], cols, rows, term)

@@ -12,6 +12,8 @@ export interface ImportFile {
   format: 'openterm-hub-import'
   version: 1
   keys?: Array<{ ref: string; label: string; privateKey: string; passphrase?: string }>
+  /** Reusable logins; hosts point at them with identityRef. */
+  identities?: Array<{ ref: string; label: string; username: string; password?: string; keyRef?: string }>
   hosts?: Array<{
     ref?: string
     label: string
@@ -21,6 +23,8 @@ export interface ImportFile {
     username?: string
     password?: string
     keyRef?: string
+    /** When set, username, password and keyRef of the host are ignored. */
+    identityRef?: string
     protocol?: Protocol
     agentForward?: boolean
     jumpHostRef?: string
@@ -38,7 +42,7 @@ export function isImportFile(raw: unknown): raw is ImportFile {
 
 export function importFile(store: Store, file: ImportFile): ImportSummary {
   if (file.version !== 1) throw new Error('Versão do arquivo de importação não suportada')
-  const sum: ImportSummary = { hosts: 0, keys: 0, snippets: 0, knownHosts: 0, skipped: 0, errors: [] }
+  const sum: ImportSummary = { hosts: 0, identities: 0, linked: 0, keys: 0, snippets: 0, knownHosts: 0, skipped: 0, errors: [] }
 
   // Keys: reuse an existing key with the same fingerprint.
   const keyIds = new Map<string, string>()
@@ -58,6 +62,28 @@ export function importFile(store: Store, file: ImportFile): ImportSummary {
     }
   }
 
+  // Identities: reuse one with the same username, password and key.
+  const identityIds = new Map<string, string>()
+  for (const i of file.identities ?? []) {
+    if (!i.username?.trim()) {
+      sum.errors.push(`Identidade "${i.label}": sem usuário`)
+      continue
+    }
+    const keyId = (i.keyRef && keyIds.get(i.keyRef)) || null
+    const existing = store
+      .identities()
+      .find((x) => x.username === i.username && x.keyId === keyId && (store.getSecret(`identity:${x.id}:password`) ?? '') === (i.password ?? ''))
+    if (existing) {
+      identityIds.set(i.ref, existing.id)
+      sum.skipped++
+      continue
+    }
+    const saved = store.saveIdentity({ label: i.label || i.username, username: i.username, hasPassword: !!i.password, keyId })
+    if (i.password) store.setSecret(`identity:${saved.id}:password`, i.password)
+    identityIds.set(i.ref, saved.id)
+    sum.identities++
+  }
+
   // Snippets: reuse one with the same script.
   const snippetIds = new Map<string, string>()
   for (const s of file.snippets ?? []) {
@@ -69,32 +95,45 @@ export function importFile(store: Store, file: ImportFile): ImportSummary {
     if (s.ref) snippetIds.set(s.ref, id)
   }
 
-  // Hosts: skip only exact copies. Entries for the same server that differ in
-  // label, group or password are kept, since either could be the one in use.
+  // Hosts: skip only exact copies (same address, label, group and effective login).
+  // Entries for the same server that differ are kept, since either could be in use.
   const hostIds = new Map<string, string>()
   const pendingJumps: Array<[string, string]> = []
   for (const h of file.hosts ?? []) {
     const port = Number(h.port) || 22
-    const username = h.username ?? ''
     if (!h.hostname?.trim()) {
       sum.errors.push(`Host "${h.label}": sem endereço`)
       continue
     }
+    const identityId = (h.identityRef && identityIds.get(h.identityRef)) || null
+    const identity = identityId ? store.identity(identityId) : undefined
+    const username = identity ? '' : (h.username ?? '')
+    const password = identity ? undefined : h.password
+    const effective = identity
+      ? { username: identity.username, password: store.getSecret(`identity:${identity.id}:password`) ?? '' }
+      : { username, password: password ?? '' }
     const label = h.label || h.hostname
-    const existing = store
-      .hosts()
-      .find(
-        (x) =>
-          x.hostname === h.hostname.trim() &&
-          x.port === port &&
-          x.username === username &&
-          x.label === label &&
-          x.group === (h.group ?? '') &&
-          (store.getSecret(`host:${x.id}:password`) ?? '') === (h.password ?? '')
+    const existing = store.hosts().find((x) => {
+      const c = store.credentials(x)
+      return (
+        x.hostname === h.hostname.trim() &&
+        x.port === port &&
+        x.label === label &&
+        x.group === (h.group ?? '') &&
+        c.username === effective.username &&
+        (c.password ?? '') === effective.password
       )
+    })
     if (existing) {
       if (h.ref) hostIds.set(h.ref, existing.id)
-      sum.skipped++
+      if (identityId && !existing.identityId) {
+        // Same login as before, now shared: link it and drop the host's own copy.
+        store.saveHost({ ...existing, identityId, username: '', hasPassword: false, keyId: null })
+        store.setSecret(`host:${existing.id}:password`, undefined)
+        sum.linked++
+      } else {
+        sum.skipped++
+      }
       continue
     }
     const host: Omit<Host, 'id'> = {
@@ -104,16 +143,17 @@ export function importFile(store: Store, file: ImportFile): ImportSummary {
       port,
       username,
       protocol: h.protocol ?? 'ssh',
-      hasPassword: !!h.password,
-      keyId: (h.keyRef && keyIds.get(h.keyRef)) || null,
-      useAgent: !h.password && !h.keyRef,
+      hasPassword: !!password,
+      keyId: identity ? null : (h.keyRef && keyIds.get(h.keyRef)) || null,
+      identityId,
+      useAgent: !identity && !password && !h.keyRef,
       agentForward: !!h.agentForward,
       jumpHostId: null,
       startupSnippetId: (h.snippetRef && snippetIds.get(h.snippetRef)) || null,
       tags: h.tags ?? []
     }
     const saved = store.saveHost(host)
-    if (h.password) store.setSecret(`host:${saved.id}:password`, h.password)
+    if (password) store.setSecret(`host:${saved.id}:password`, password)
     if (h.ref) hostIds.set(h.ref, saved.id)
     if (h.jumpHostRef) pendingJumps.push([saved.id, h.jumpHostRef])
     sum.hosts++

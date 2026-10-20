@@ -11,6 +11,8 @@ export interface Host {
   /** Saved password, stored encrypted on disk. Never sent back to the renderer. */
   hasPassword: boolean
   keyId: string | null
+  /** Reusable login: when set, its username, password and key replace the host's own. */
+  identityId: string | null
   useAgent: boolean
   agentForward: boolean
   jumpHostId: string | null
@@ -19,6 +21,22 @@ export interface Host {
 }
 
 export interface HostInput extends Omit<Host, 'id' | 'hasPassword'> {
+  id?: string
+  /** undefined = keep the stored password, '' = remove it */
+  password?: string
+}
+
+/** A login (username + password and/or key) shared by many hosts. */
+export interface Identity {
+  id: string
+  label: string
+  username: string
+  /** The password is stored encrypted and never sent to the renderer. */
+  hasPassword: boolean
+  keyId: string | null
+}
+
+export interface IdentityInput extends Omit<Identity, 'id' | 'hasPassword'> {
   id?: string
   /** undefined = keep the stored password, '' = remove it */
   password?: string
@@ -61,6 +79,12 @@ export interface KnownHost {
   addedAt: string
 }
 
+/** Double-click word separators: xterm.js default and the PuTTY style. */
+export const WORD_SEPARATORS = {
+  default: ' ()[]{}\',"`',
+  putty: ' ()[]{}\',"`@:=;|<>'
+} as const
+
 export const TERM_TYPES = ['xterm-256color', 'xterm', 'xterm-color', 'screen-256color', 'tmux-256color', 'vt220', 'vt100', 'linux'] as const
 
 export interface FileAssociation {
@@ -74,8 +98,11 @@ export interface Settings {
   language: 'pt' | 'en'
   theme: 'dark' | 'light' | 'system'
   terminalTheme: string
+  /** A family name (bundled or installed) or, with commas, a raw CSS font stack. */
   fontFamily: string
   fontSize: number
+  /** Characters that end a word when double-clicking to select (PuTTY also splits on @ and :). */
+  wordSeparator: string
   cursorStyle: 'block' | 'bar' | 'underline'
   scrollback: number
   keepaliveSeconds: number
@@ -98,8 +125,9 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'pt',
   theme: 'dark',
   terminalTheme: 'auto',
-  fontFamily: "'JetBrains Mono', 'DejaVu Sans Mono', monospace",
+  fontFamily: 'JetBrains Mono',
   fontSize: 14,
+  wordSeparator: WORD_SEPARATORS.default,
   cursorStyle: 'block',
   scrollback: 10000,
   keepaliveSeconds: 30,
@@ -132,6 +160,7 @@ export interface LogEntry {
 
 export interface Snapshot {
   hosts: Host[]
+  identities: Identity[]
   keys: SshKey[]
   snippets: Snippet[]
   forwards: ForwardRule[]
@@ -198,6 +227,9 @@ export interface AgentKey {
 
 export interface ImportSummary {
   hosts: number
+  identities: number
+  /** Existing hosts linked to an identity from the file instead of being duplicated. */
+  linked: number
   keys: number
   snippets: number
   knownHosts: number
@@ -244,6 +276,9 @@ export interface OpenTermApi {
   getSnapshot(): Promise<Snapshot>
   saveHost(host: HostInput): Promise<Host>
   deleteHost(id: string): Promise<void>
+  saveIdentity(identity: IdentityInput): Promise<Identity>
+  /** Hosts that used it keep working with the identity's username copied in. */
+  deleteIdentity(id: string): Promise<void>
   importSshConfig(): Promise<number>
   generateKey(req: GeneratedKeyRequest): Promise<SshKey>
   importKey(req: ImportKeyRequest): Promise<SshKey>

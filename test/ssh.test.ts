@@ -67,7 +67,7 @@ function handleClient(client: Connection): void {
 function fakeDeps(opts: { password?: string; answers?: string[] }) {
   const host: Host = {
     id: 'h1', label: 'test', group: '', hostname: '127.0.0.1', port: 0, username: 'alice', protocol: 'ssh',
-    hasPassword: !!opts.password, keyId: null, useAgent: false, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
+    hasPassword: !!opts.password, keyId: null, identityId: null, useAgent: false, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
   }
   const secrets = new Map<string, string>()
   if (opts.password) secrets.set('host:h1:password', opts.password)
@@ -79,6 +79,7 @@ function fakeDeps(opts: { password?: string; answers?: string[] }) {
   const store = {
     host: (id: string) => (id === 'h1' ? { ...host, port: sshPort } : undefined),
     getSecret: (n: string) => secrets.get(n),
+    credentials: (h: Host) => ({ username: h.username, password: secrets.get(`host:${h.id}:password`), keyId: h.keyId }),
     setSecret: (n: string, v?: string) => (v ? secrets.set(n, v) : secrets.delete(n)),
     knownHost: (h: string, p: number) => known.find((k) => k.host === h && k.port === p),
     trustHost: (e: KnownHost) => {
@@ -190,4 +191,15 @@ test('generated key is installed with a safely quoted command', async () => {
   const client = await connectHost(f.deps, 'h1')
   assert.equal((await exec(client, 'true')).code, 0)
   client.end()
+})
+
+test("a host's identity supplies the login", async () => {
+  const f = fakeDeps({})
+  const store = f.deps.store as unknown as { credentials: (h: Host) => unknown }
+  // No password on the host itself: it comes from the identity.
+  store.credentials = () => ({ username: 'alice', password: 'secret', keyId: null })
+  const client = await connectHost(f.deps, 'h1')
+  assert.equal((await exec(client, 'true')).code, 0)
+  client.end()
+  assert.equal(f.credentialPrompts.length, 0, 'no password prompt')
 })

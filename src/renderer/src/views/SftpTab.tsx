@@ -4,7 +4,7 @@ import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { formatBytes, Modal } from '../components/ui'
 import { useT, type TKey } from '../i18n'
-import { joinPath, modeString, parent, uniqueName } from '../paths'
+import { crumbs, joinPath, modeString, parent, uniqueName } from '../paths'
 import { attempt, useApp, type Tab } from '../state'
 
 type Side = 'left' | 'right'
@@ -201,7 +201,15 @@ function ConflictModal({ name, onDone }: { name: string; onDone(c: ConflictChoic
   )
 }
 
-function ContextMenu(props: { menu: MenuState; ops: PaneOps; otherName: string; onCopy(e: FileEntry): void; onDialog(d: Dialog): void; onClose(): void }) {
+function ContextMenu(props: {
+  menu: MenuState
+  ops: PaneOps
+  otherName: string
+  onNavigate(path: string): void
+  onCopy(e: FileEntry): void
+  onDialog(d: Dialog): void
+  onClose(): void
+}) {
   const { menu, ops, onDialog, onClose } = props
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
@@ -244,7 +252,7 @@ function ContextMenu(props: { menu: MenuState; ops: PaneOps; otherName: string; 
     <div ref={ref} className="menu context-menu" style={{ position: 'fixed', ...pos }}>
       {e && (
         <>
-          {item(e.isDir ? t('open') : t('openFile'), () => (e.isDir ? void ops.list(e.path) : void attempt(() => ops.open(e))))}
+          {item(e.isDir ? t('open') : t('openFile'), () => (e.isDir ? props.onNavigate(e.path) : void attempt(() => ops.open(e))))}
           {!e.isDir && item(t('openWith') + '…', () => onDialog({ kind: 'openWith', entry: e, side: menu.side }))}
           {item(`${t('copyTo')} ${props.otherName}`, () => props.onCopy(e))}
           <hr />
@@ -326,6 +334,11 @@ function FilePane(props: {
   state: PaneState
   onPickSource(anchor: DOMRect): void
   onNavigate(path: string): void
+  onRefresh(): void
+  canBack: boolean
+  canForward: boolean
+  onBack(): void
+  onForward(): void
   onSelect(e: FileEntry): void
   onOpen(e: FileEntry): void
   onMenu(m: MenuState): void
@@ -339,6 +352,7 @@ function FilePane(props: {
   const { state } = props
   const [filter, setFilter] = useState('')
   const [draft, setDraft] = useState(state.path)
+  const [editingPath, setEditingPath] = useState(false)
   const [dropping, setDropping] = useState(false)
   useEffect(() => setDraft(state.path), [state.path])
   // A filter belongs to the folder it was typed in.
@@ -399,20 +413,60 @@ function FilePane(props: {
           {t('actions')} ▾
         </button>
       </div>
+      {!state.source && !state.connecting && !state.error ? (
+        <div className="connect-host">
+          <div className="connect-icon">
+            <Icon name="folder" size={22} />
+          </div>
+          <h3>{t('connectToHost')}</h3>
+          <p className="dim">{t('connectToHostHint')}</p>
+          <button className="btn" onClick={(ev) => props.onPickSource(ev.currentTarget.getBoundingClientRect())}>
+            {t('selectHost')}
+          </button>
+        </div>
+      ) : (
+        <>
       <div className="fpane-head">
+        <button className="btn small icon" title={t('back')} disabled={!props.canBack} onClick={props.onBack}>
+          <Icon name="chevronLeft" />
+        </button>
+        <button className="btn small icon" title={t('forward')} disabled={!props.canForward} onClick={props.onForward}>
+          <Icon name="chevronRight" />
+        </button>
         <button className="btn small icon" title={t('up')} disabled={atRoot} onClick={() => props.onNavigate(parent(state.path))}>
           <Icon name="up" />
         </button>
-        <button className="btn small icon" title={t('refresh')} onClick={() => props.onNavigate(state.path)}>
+        <button className="btn small icon" title={t('refresh')} onClick={props.onRefresh}>
           <Icon name="refresh" />
         </button>
-        <input
-          className="input mono"
-          style={{ height: 26 }}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && props.onNavigate(draft)}
-        />
+        {editingPath ? (
+          <input
+            className="input mono"
+            style={{ height: 26 }}
+            value={draft}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => setEditingPath(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                props.onNavigate(draft)
+                setEditingPath(false)
+              } else if (e.key === 'Escape') setEditingPath(false)
+            }}
+          />
+        ) : (
+          <div className="crumbs" title={t('editPath')} onClick={(e) => e.target === e.currentTarget && setEditingPath(true)}>
+            {crumbs(state.path).map((c, i, all) => (
+              <span key={c.path + i} className="crumb">
+                <button className={i === all.length - 1 ? 'current' : ''} onClick={() => props.onNavigate(c.path)}>
+                  {i === 0 && c.label === '/' ? <Icon name="folder" size={13} /> : c.label}
+                </button>
+                {i < all.length - 1 && <span className="sep">›</span>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="ftable" onContextMenu={(ev) => openMenu(ev, null)}>
         <div className="frow head">
@@ -474,6 +528,8 @@ function FilePane(props: {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   )
 }
@@ -494,6 +550,10 @@ export function SftpTab({ tab }: { tab: Tab }) {
   panesRef.current = panes
   const sessions = useRef(new Set<string>())
   const closed = useRef(false)
+  // Back/forward history of each pane (folders, per source).
+  const history = useRef<Record<Side, { back: string[]; forward: string[] }>>({ left: { back: [], forward: [] }, right: { back: [], forward: [] } })
+  const [, bumpHistory] = useState(0)
+  const renameTab = useApp((s) => s.renameTab)
 
   const patch = (side: Side, p: Partial<PaneState>): void => setPanes((s) => ({ ...s, [side]: { ...s[side], ...p } }))
 
@@ -508,8 +568,38 @@ export function SftpTab({ tab }: { tab: Tab }) {
     }
   }
 
+  /** User navigation: remembered for back/forward (refreshes are not). */
+  const navigate = (side: Side, path: string): void => {
+    const current = panesRef.current[side].path
+    if (path && current && path !== current) {
+      history.current[side].back.push(current)
+      history.current[side].forward = []
+      bumpHistory((n) => n + 1)
+    }
+    void list(side, path)
+  }
+
+  const step = (side: Side, dir: 'back' | 'forward'): void => {
+    const h = history.current[side]
+    const target = h[dir].pop()
+    if (target === undefined) return
+    h[dir === 'back' ? 'forward' : 'back'].push(panesRef.current[side].path)
+    bumpHistory((n) => n + 1)
+    void list(side, target)
+  }
+
+  /** Tab title: "SFTP", or the hosts open in it. */
+  const retitle = (): void => {
+    const names = (['left', 'right'] as const)
+      .map((s) => panesRef.current[s].source)
+      .filter((src): src is Extract<Source, { kind: 'host' }> => src?.kind === 'host')
+      .map((src) => src.label)
+    renameTab(tab.id, names.length ? `SFTP · ${names.join(' ↔ ')}` : 'SFTP')
+  }
+
   /** Points a pane at this computer (hostId null) or at a vault host. */
   const choose = async (side: Side, hostId: string | null): Promise<void> => {
+    history.current[side] = { back: [], forward: [] }
     const previous = panesRef.current[side].source
     const release = (): void => {
       if (previous?.kind === 'host') {
@@ -519,7 +609,8 @@ export function SftpTab({ tab }: { tab: Tab }) {
     }
     if (hostId === null) {
       release()
-      return list(side, await api.localHome(), { kind: 'local' })
+      await list(side, await api.localHome(), { kind: 'local' })
+      return retitle()
     }
     const host = hosts.find((h) => h.id === hostId)
     if (!host) return
@@ -530,6 +621,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
       sessions.current.add(sftpId)
       release()
       await list(side, home, { kind: 'host', hostId, sftpId, label: host.label })
+      retitle()
     } catch (err) {
       patch(side, { connecting: undefined, error: errorMessage(err) })
     }
@@ -649,7 +741,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
 
   const titleOf = (side: Side): string => {
     const s = panes[side].source
-    return s?.kind === 'host' ? s.label : s ? t('localFiles') : panes[side].connecting ?? '…'
+    return s?.kind === 'host' ? s.label : s ? t('localFiles') : (panes[side].connecting ?? t('selectHost'))
   }
 
   const myTransfers = Object.values(transfers).filter((p) => mine.current.has(p.transferId))
@@ -665,7 +757,12 @@ export function SftpTab({ tab }: { tab: Tab }) {
             title={titleOf(side)}
             state={panes[side]}
             onPickSource={(anchor) => setPicker({ side, anchor })}
-            onNavigate={(p) => void list(side, p)}
+            onNavigate={(p) => navigate(side, p)}
+            onRefresh={() => void list(side, '')}
+            canBack={history.current[side].back.length > 0}
+            canForward={history.current[side].forward.length > 0}
+            onBack={() => step(side, 'back')}
+            onForward={() => step(side, 'forward')}
             onSelect={(e) => patch(side, { sel: e })}
             onOpen={(e) => void attempt(() => opsFor(side).open(e))}
             onMenu={setMenu}
@@ -708,6 +805,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
           menu={menu}
           ops={opsFor(menu.side)}
           otherName={titleOf(other(menu.side))}
+          onNavigate={(path) => navigate(menu.side, path)}
           onCopy={(e) => copy(menu.side, e)}
           onDialog={setDialog}
           onClose={() => setMenu(null)}

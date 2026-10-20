@@ -76,9 +76,9 @@ interface Candidate {
  * server does not offer are skipped; cancelling any prompt aborts the login.
  */
 function authHandler(deps: SshDeps, host: Host, hs: Handshake): AuthHandlerMiddleware {
-  const username = host.username
+  // The host's identity, when it has one, supplies the username, password and key.
+  const { username, password, keyId: hostKeyId } = deps.store.credentials(host)
   const title = `${username}@${host.hostname}`
-  const password = deps.store.getSecret(`host:${host.id}:password`)
   const queue: Candidate[] = []
   let cancelled = false
 
@@ -95,8 +95,8 @@ function authHandler(deps: SshDeps, host: Host, hs: Handshake): AuthHandlerMiddl
       }
     })
   }
-  if (host.keyId) {
-    const keyId = host.keyId
+  if (hostKeyId) {
+    const keyId = hostKeyId
     queue.push({
       type: 'publickey',
       make: async () => {
@@ -196,7 +196,7 @@ export async function connectHost(deps: SshDeps, hostId: string, depth = 0): Pro
   const config: ConnectConfig = {
     host: host.hostname,
     port: host.port,
-    username: host.username,
+    username: deps.store.credentials(host).username,
     sock,
     readyTimeout: 0,
     keepaliveInterval: deps.store.settings().keepaliveSeconds * 1000,

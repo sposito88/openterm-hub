@@ -88,10 +88,13 @@ export function Hosts() {
     return () => window.removeEventListener('openterm:serial', open)
   }, [])
 
+  /** Username shown for a host: its identity's when it has one. */
+  const userOf = (h: Host): string => (h.identityId ? (snap.identities.find((i) => i.id === h.identityId)?.username ?? '') : h.username)
+
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
     const match = (h: Host): boolean =>
-      !q || [h.label, h.hostname, h.username, h.group, ...h.tags].some((v) => v.toLowerCase().includes(q))
+      !q || [h.label, h.hostname, userOf(h), h.group, ...h.tags].some((v) => v.toLowerCase().includes(q))
     const map = new Map<string, Host[]>()
     for (const h of snap.hosts.filter(match).sort((a, b) => a.label.localeCompare(b.label))) {
       const list = map.get(h.group) ?? []
@@ -142,7 +145,7 @@ export function Hosts() {
                 <div className="card-body">
                   <div className="card-title">{h.label}</div>
                   <div className="card-sub">
-                    {h.protocol}, {h.username ? `${h.username}@` : ''}
+                    {h.protocol}, {userOf(h) ? `${userOf(h)}@` : ''}
                     {h.hostname}
                     {h.port !== 22 ? `:${h.port}` : ''}
                   </div>
