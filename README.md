@@ -1,33 +1,12 @@
 # OpenTerm Hub
 
+[![Release](https://img.shields.io/github/v/release/sposito88/openterm-hub?color=3ddc97)](https://github.com/sposito88/openterm-hub/releases/latest)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-3ddc97)](LICENSE)
+[![Plataformas](https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-161920)](#instalar)
+
 Cliente SSH de desktop, open source (MIT), feito com Electron. Organiza seus hosts, abre terminais em abas, transfere arquivos por SFTP, cria túneis e sugere comandos enquanto você digita.
 
 *English summary at the end.*
-
-![Autocomplete no terminal](docs/screenshots/autocomplete.png)
-
-## Funcionalidades
-
-| Área | O que faz |
-|---|---|
-| **Hosts** | Cadastro com grupos, tags e busca. Protocolos SSH, Mosh e Telnet. Importa o `~/.ssh/config` (incluindo `IdentityFile` e `ProxyJump`). |
-| **Terminal** | Abas com xterm.js, terminal local (seu shell), porta serial, busca no conteúdo, reconexão automática quando a conexão cai, selecionar para copiar e botão direito para colar, som de bell, tipo de emulação (`TERM`) configurável e 19 temas de cores (Dracula, Nord, Solarized, Gruvbox, Tokyo Night, Catppuccin, Kanagawa, Flexoki…). |
-| **Autenticação** | Senha salva, chave privada, ssh-agent, keyboard-interactive (2FA/OTP), agent forwarding e jump hosts encadeados. **Chaves de segurança FIDO2** (YubiKey, SoloKey…) via ssh-agent, com aviso para tocar na chave. |
-| **Segurança** | Confirmação da chave do servidor na primeira conexão, alerta quando ela muda e lista de *known hosts*. Segredos cifrados pelo chaveiro do sistema. |
-| **SFTP** | Dois painéis, cada um apontando para este computador **ou qualquer host do cofre**: copie local↔servidor ou **direto de um servidor para outro**. Upload e download recursivos, progresso, nova pasta, renomear, excluir e arquivos ocultos opcionais. **Abrir com…**: edite um arquivo remoto no programa de sua escolha, e cada vez que salvar ele volta ao servidor. |
-| **Port forwarding** | Túneis local (`-L`), remoto (`-R`) e dinâmico (`-D`, SOCKS5). |
-| **Chaves** | Gera Ed25519, RSA e ECDSA (com passphrase opcional), importa, exporta e instala no servidor (equivalente ao `ssh-copy-id`). |
-| **Snippets** | Comandos salvos para rodar em qualquer aba ou automaticamente ao conectar. |
-| **Autocomplete** | Sugestões de comandos, subcomandos e opções (mais de 1400 ferramentas, via specs do [Fig](https://github.com/withfig/autocomplete)), do seu histórico, do histórico importado do bash/zsh/fish e dos snippets. Tab aceita, ↑/↓ navegam, Esc fecha. |
-| **Logs** | Histórico de conexões (quando, para onde, duração e como terminou) e, se ativado, gravação da saída das sessões, que pode ser revista depois. |
-| **Atalhos** | Todos configuráveis em Configurações → Atalhos: trocar de aba (Ctrl+1…9, Alt+←/→), fechar aba, copiar, colar, selecionar tudo, buscar, zoom da fonte, abrir terminal local, serial, SFTP, port forwarding, snippets e configurações. |
-| **Migração** | Importa hosts, senhas, chaves, snippets e known hosts de um arquivo JSON documentado ([docs/IMPORT.md](docs/IMPORT.md)), além do `~/.ssh/config`. |
-| **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup em JSON (sem segredos). |
-
-<p>
-  <img src="docs/screenshots/host-key.png" width="49%" alt="Confirmação da chave do servidor">
-  <img src="docs/screenshots/port-forwarding.png" width="49%" alt="Port forwarding">
-</p>
 
 ## Instalar
 
@@ -67,6 +46,32 @@ Os binários ainda não são assinados. Na primeira execução:
 - **macOS:** clique com o botão direito no app e escolha *Abrir*.
 
 Detalhes em [BUILDING.md](BUILDING.md).
+
+
+![Autocomplete no terminal](docs/screenshots/autocomplete.png)
+
+## Funcionalidades
+
+| Área | O que faz |
+|---|---|
+| **Hosts** | Cadastro com grupos, tags e busca. Protocolos SSH, Mosh e Telnet. Importa o `~/.ssh/config` (incluindo `IdentityFile` e `ProxyJump`). |
+| **Terminal** | Abas com xterm.js, terminal local (seu shell), porta serial, busca no conteúdo, reconexão automática quando a conexão cai, selecionar para copiar e botão direito para colar, som de bell, tipo de emulação (`TERM`) configurável e 19 temas de cores (Dracula, Nord, Solarized, Gruvbox, Tokyo Night, Catppuccin, Kanagawa, Flexoki…). |
+| **Autenticação** | Senha salva, chave privada, ssh-agent, keyboard-interactive (2FA/OTP), agent forwarding e jump hosts encadeados. **Chaves de segurança FIDO2** (YubiKey, SoloKey…) via ssh-agent, com aviso para tocar na chave. |
+| **Segurança** | Confirmação da chave do servidor na primeira conexão, alerta quando ela muda e lista de *known hosts*. Segredos cifrados pelo chaveiro do sistema. |
+| **SFTP** | Dois painéis, cada um apontando para este computador **ou qualquer host do cofre**: copie local↔servidor ou **direto de um servidor para outro**. Upload e download recursivos, progresso, nova pasta, renomear, excluir e arquivos ocultos opcionais. **Abrir com…**: edite um arquivo remoto no programa de sua escolha, e cada vez que salvar ele volta ao servidor. |
+| **Port forwarding** | Túneis local (`-L`), remoto (`-R`) e dinâmico (`-D`, SOCKS5). |
+| **Chaves** | Gera Ed25519, RSA e ECDSA (com passphrase opcional), importa, exporta e instala no servidor (equivalente ao `ssh-copy-id`). |
+| **Snippets** | Comandos salvos para rodar em qualquer aba ou automaticamente ao conectar. |
+| **Autocomplete** | Sugestões de comandos, subcomandos e opções (mais de 1400 ferramentas, via specs do [Fig](https://github.com/withfig/autocomplete)), do seu histórico, do histórico importado do bash/zsh/fish e dos snippets. Tab aceita, ↑/↓ navegam, Esc fecha. |
+| **Logs** | Histórico de conexões (quando, para onde, duração e como terminou) e, se ativado, gravação da saída das sessões, que pode ser revista depois. |
+| **Atalhos** | Todos configuráveis em Configurações → Atalhos: trocar de aba (Ctrl+1…9, Alt+←/→), fechar aba, copiar, colar, selecionar tudo, buscar, zoom da fonte, abrir terminal local, serial, SFTP, port forwarding, snippets e configurações. |
+| **Migração** | Importa hosts, senhas, chaves, snippets e known hosts de um arquivo JSON documentado ([docs/IMPORT.md](docs/IMPORT.md)), além do `~/.ssh/config`. |
+| **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup em JSON (sem segredos). |
+
+<p>
+  <img src="docs/screenshots/host-key.png" width="49%" alt="Confirmação da chave do servidor">
+  <img src="docs/screenshots/port-forwarding.png" width="49%" alt="Port forwarding">
+</p>
 
 ## Rodar a partir do código
 
@@ -146,4 +151,4 @@ OpenTerm Hub is an open source (MIT) desktop SSH client built with Electron. It 
 - snippets;
 - inline command autocomplete powered by the Fig specs, your history and your snippets.
 
-Run it with `npm install && npm run dev`; `npm test` runs the test suite. UI languages: Portuguese and English.
+Install with `curl -fsSL https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.sh | sh` (Linux/macOS) or `irm https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.ps1 | iex` (Windows PowerShell); downloads are checked against the release SHA256SUMS. From source: `npm install && npm run dev`; `npm test` runs the test suite. UI languages: Portuguese and English.
