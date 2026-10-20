@@ -28,6 +28,12 @@ O `.exe` portátil é gerado no Linux sem nenhuma dependência extra. O instalad
 - O `.dmg` é criado com o `hdiutil`, que só existe no macOS.
 - No Apple Silicon, o sistema não executa apps sem assinatura. Usamos uma assinatura *ad hoc* (`identity: "-"`), feita com o `codesign` do macOS.
 
+## Patches em dependências
+
+`patches/` contém ajustes pequenos aplicados pelo [patch-package](https://github.com/ds300/patch-package) a cada `npm install` (via `scripts/postinstall.mjs`):
+
+- **`ssh2+1.17.0.patch`**: suporte a chaves de segurança FIDO2 (`sk-ssh-ed25519@openssh.com` e `sk-ecdsa-sha2-nistp256@openssh.com`) por meio do ssh-agent. A biblioteca descartava essas chaves e removia os campos *flags* e *counter* da assinatura (formato `PROTOCOL.u2f` do OpenSSH). O teste `test/fido.test.ts` faz login num `sshd` real do OpenSSH com uma assinatura nesse formato.
+
 ## Módulos nativos
 
 O `node-pty` (terminal local) e o `serialport` (porta serial) têm partes nativas:

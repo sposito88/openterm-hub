@@ -6,6 +6,9 @@
 import { execSync } from 'node:child_process'
 import { copyFileSync, mkdirSync } from 'node:fs'
 
+// patches/: small fixes to dependencies (e.g. FIDO2 security keys in ssh2).
+execSync('patch-package', { stdio: 'inherit' })
+
 if (process.platform === 'linux') {
   execSync('electron-rebuild -f -o node-pty', { stdio: 'inherit' })
   const dir = `node_modules/node-pty/prebuilds/linux-${process.arch}`

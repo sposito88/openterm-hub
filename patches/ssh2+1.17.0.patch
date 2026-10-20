@@ -1,0 +1,80 @@
+diff --git a/node_modules/ssh2/lib/agent.js b/node_modules/ssh2/lib/agent.js
+index bb495d1..f2134a2 100644
+--- a/node_modules/ssh2/lib/agent.js
++++ b/node_modules/ssh2/lib/agent.js
+@@ -655,8 +655,14 @@ const AgentProtocol = (() => {
+               // TODO: verify signature type based on key and options used
+               // during initial sign request
+               binaryParser.init(signature, 0);
+-              binaryParser.readString(true);
+-              signature = binaryParser.readString();
++              const sigAlgo = binaryParser.readString(true);
++              if (typeof sigAlgo === 'string' && sigAlgo.startsWith('sk-')) {
++                // Security key signatures carry flags and a counter after the
++                // signature itself (OpenSSH PROTOCOL.u2f); keep all of it.
++                signature = binaryParser.readRaw();
++              } else {
++                signature = binaryParser.readString();
++              }
+               binaryParser.clear();
+ 
+               if (signature === undefined)
+diff --git a/node_modules/ssh2/lib/protocol/Protocol.js b/node_modules/ssh2/lib/protocol/Protocol.js
+index 7302488..b8ae1d1 100644
+--- a/node_modules/ssh2/lib/protocol/Protocol.js
++++ b/node_modules/ssh2/lib/protocol/Protocol.js
+@@ -702,10 +702,14 @@ class Protocol {
+         throw new Error('Error while converting handshake signature');
+ 
+       const sigLen = signature.length;
++      // Security key (sk-*) signatures are already "string sig, byte flags,
++      // uint32 counter" (OpenSSH PROTOCOL.u2f) and go in without a length.
++      const rawSig = keyType.startsWith('sk-');
++      const sigFieldLen = (rawSig ? 0 : 4) + sigLen;
+       p = this._packetRW.write.allocStart;
+       packet = this._packetRW.write.alloc(
+         1 + 4 + userLen + 4 + 14 + 4 + 9 + 1 + 4 + algoLen + 4 + pubKeyLen + 4
+-          + 4 + algoLen + 4 + sigLen
++          + 4 + algoLen + sigFieldLen
+       );
+ 
+       // TODO: simply copy from original "packet" to new `packet` to avoid
+@@ -729,13 +733,17 @@ class Protocol {
+       writeUInt32BE(packet, pubKeyLen, p += algoLen);
+       packet.set(pubKey, p += 4);
+ 
+-      writeUInt32BE(packet, 4 + algoLen + 4 + sigLen, p += pubKeyLen);
++      writeUInt32BE(packet, 4 + algoLen + sigFieldLen, p += pubKeyLen);
+ 
+       writeUInt32BE(packet, algoLen, p += 4);
+       packet.utf8Write(keyAlgo, p += 4, algoLen);
+ 
+-      writeUInt32BE(packet, sigLen, p += algoLen);
+-      packet.set(signature, p += 4);
++      if (rawSig) {
++        packet.set(signature, p += algoLen);
++      } else {
++        writeUInt32BE(packet, sigLen, p += algoLen);
++        packet.set(signature, p += 4);
++      }
+ 
+       // Servers shouldn't send packet type 60 in response to signed publickey
+       // attempts, but if they do, interpret as type 60.
+diff --git a/node_modules/ssh2/lib/protocol/keyParser.js b/node_modules/ssh2/lib/protocol/keyParser.js
+index a276c1a..9d39de2 100644
+--- a/node_modules/ssh2/lib/protocol/keyParser.js
++++ b/node_modules/ssh2/lib/protocol/keyParser.js
+@@ -1457,6 +1457,13 @@ function parseKey(data, passphrase) {
+   if (origBuffer) {
+     binaryKeyParser.init(origBuffer, 0);
+     const type = binaryKeyParser.readString(true);
++    if (type === 'sk-ssh-ed25519@openssh.com'
++        || type === 'sk-ecdsa-sha2-nistp256@openssh.com') {
++      // FIDO2 security key (OpenSSH PROTOCOL.u2f), usable through an agent:
++      // the client only forwards the public key blob, the server verifies.
++      binaryKeyParser.clear();
++      return new OpenSSH_Public(type, '', null, origBuffer, null);
++    }
+     if (type !== undefined) {
+       data = binaryKeyParser.readRaw();
+       if (data !== undefined) {

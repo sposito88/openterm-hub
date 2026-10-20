@@ -124,6 +124,7 @@ export function wireEvents(): void {
   window
     .matchMedia('(prefers-color-scheme: light)')
     .addEventListener('change', (e) => useApp.setState({ systemLight: e.matches }))
+  api.onNotice((text) => useApp.getState().toast(text))
   api.onSftpSynced((name, error) => {
     if (error) useApp.getState().toast(`${name}: ${error}`, true)
     else useApp.getState().toast(`${name}: ${translate('synced')}`)

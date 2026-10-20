@@ -11,6 +11,7 @@ import { importFile, isImportFile } from './importer'
 import { generateKey, importKey, installKeyOnHost } from './keys'
 import { Logs } from './logs'
 import { Prompts } from './prompts'
+import { listAgentKeys } from './ssh'
 import { Sessions } from './sessions'
 import { launch, localHome, localList, Sftp, splitCommand, type Opener } from './sftp'
 import { loadShellHistory } from './shellHistory'
@@ -306,6 +307,7 @@ app.whenReady().then(() => {
     readLog: (id) => logs.read(id),
     deleteLog: (id) => logs.delete(id),
     clearLogs: () => logs.clear(),
+    listAgentKeys: () => listAgentKeys(),
     // App history goes last so it ranks above the imported shell history.
     suggest: (line) => suggest(line, specs, [...shellHistory, ...store.history()], store.snippets()),
     recordHistory: (line) => store.recordHistory(line),

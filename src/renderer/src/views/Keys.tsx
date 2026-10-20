@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import type { GeneratedKeyRequest, SshKey } from '@shared/types'
+import { useEffect, useState, type FormEvent } from 'react'
+import type { AgentKey, GeneratedKeyRequest, SshKey } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
 import { Drawer, Field, FormActions } from '../components/ui'
@@ -114,6 +114,55 @@ function InstallMenu({ keyItem, onClose }: { keyItem: SshKey; onClose(): void })
   )
 }
 
+/**
+ * Keys in the system ssh-agent, including FIDO2 security keys (YubiKey…),
+ * which never leave the device and are used through the agent.
+ */
+function AgentKeys() {
+  const t = useT()
+  const [keys, setKeys] = useState<AgentKey[] | null>(null)
+  const load = (): void => void api.listAgentKeys().then(setKeys, () => setKeys([]))
+  useEffect(load, [])
+  return (
+    <>
+      <div className="page-head" style={{ marginTop: 28 }}>
+        <h1 style={{ fontSize: 15 }}>{t('agentKeys')}</h1>
+        <button className="btn small" onClick={load}>
+          <Icon name="refresh" /> {t('refresh')}
+        </button>
+      </div>
+      <p className="note">{t('agentKeysHint')}</p>
+      {keys && keys.length === 0 ? (
+        <div className="empty" style={{ padding: '16px 0' }}>
+          {t('noAgentKeys')}
+        </div>
+      ) : (
+        <div className="list">
+          {keys?.map((k) => (
+            <div key={k.fingerprint} className="list-item">
+              <Icon name={k.securityKey ? 'shield' : 'key'} size={18} />
+              <div className="grow">
+                <div>
+                  <b>{k.comment || k.type}</b> <span className="chip">{k.type}</span>
+                  {k.securityKey && <span className="chip ok">FIDO2</span>}
+                </div>
+                <div className="dim mono truncate selectable">{k.fingerprint}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <details className="note" style={{ marginTop: 12 }}>
+        <summary style={{ cursor: 'pointer' }}>{t('fidoHowTo')}</summary>
+        <pre className="mono selectable fido-howto">{`ssh-keygen -t ed25519-sk -C "minha-yubikey"
+ssh-add ~/.ssh/id_ed25519_sk
+ssh-copy-id -i ~/.ssh/id_ed25519_sk.pub usuario@servidor`}</pre>
+        <p>{t('fidoHowToHint')}</p>
+      </details>
+    </>
+  )
+}
+
 export function Keys() {
   const t = useT()
   const keys = useApp((s) => s.snapshot!.keys)
@@ -175,6 +224,7 @@ export function Keys() {
           ))}
         </div>
       )}
+      <AgentKeys />
       {mode === 'generate' && <GenerateForm onClose={() => setMode(null)} />}
       {mode === 'import' && <ImportForm onClose={() => setMode(null)} />}
     </div>

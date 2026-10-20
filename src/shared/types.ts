@@ -186,6 +186,15 @@ export interface HostKeyPrompt {
   previous?: string
 }
 
+/** A key loaded in the system ssh-agent. */
+export interface AgentKey {
+  type: string
+  comment: string
+  fingerprint: string
+  /** FIDO2 security key (sk-*): signing needs a touch on the device. */
+  securityKey: boolean
+}
+
 export interface ImportSummary {
   hosts: number
   keys: number
@@ -290,6 +299,9 @@ export interface OpenTermApi {
   /** File picker for "Open with…"; returns the program path. */
   pickProgram(): Promise<string | null>
 
+  /** Keys in the system ssh-agent; empty when no agent is running. */
+  listAgentKeys(): Promise<AgentKey[]>
+
   suggest(line: string): Promise<Suggestion[]>
   recordHistory(line: string): void
 
@@ -301,6 +313,8 @@ export interface OpenTermApi {
   onSessionExit(cb: (id: string, reason: string) => void): () => void
   onHostKeyPrompt(cb: (p: HostKeyPrompt) => void): () => void
   onCredentialPrompt(cb: (p: CredentialPrompt) => void): () => void
+  /** Short information for the user, e.g. "touch your security key". */
+  onNotice(cb: (text: string) => void): () => void
   onPromptCancel(cb: (promptId: string) => void): () => void
   onTransferProgress(cb: (p: TransferProgress) => void): () => void
   onForwardStatus(cb: (s: ForwardStatus) => void): () => void

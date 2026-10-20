@@ -17,5 +17,6 @@ repository's "Report a vulnerability" (GitHub Security Advisories) instead.
 - Toda chave de servidor é confirmada pelo usuário na primeira conexão, e uma
   chave alterada gera um alerta de possível ataque man-in-the-middle.
 - O backup exportado não contém senhas nem chaves privadas.
+- Chaves de segurança FIDO2 (YubiKey etc.) são usadas pelo ssh-agent: a chave privada nunca sai do dispositivo, e cada login exige tocar nele.
 - Comandos digitados sem eco (senhas pedidas por `sudo`, `read -s` etc.) não
   entram no histórico do autocomplete.
