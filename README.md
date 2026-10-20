@@ -29,7 +29,30 @@ Cliente SSH de desktop, open source (MIT), feito com Electron. Organiza seus hos
   <img src="docs/screenshots/port-forwarding.png" width="49%" alt="Port forwarding">
 </p>
 
-## Baixar
+## Instalar
+
+**Linux e macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.ps1 | iex
+```
+
+O script baixa a versão mais recente para o seu sistema e **confere o SHA-256** de cada arquivo com o `SHA256SUMS.txt` do release antes de instalar:
+
+- **Debian/Ubuntu:** instala o `.deb` (pede `sudo`).
+- **Outras distros Linux:** instala o AppImage em `~/.local/bin`, sem `sudo`, com atalho no menu.
+- **macOS:** coloca o app em `/Applications`.
+- **Windows:** abre o instalador.
+
+Prefere ler antes de rodar? Baixe o [install.sh](install.sh) ou o [install.ps1](install.ps1), confira e execute. Opções: `OPENTERM_VERSION=v0.2.3` (versão específica), `OPENTERM_APPIMAGE=1` (forçar o AppImage) e `OPENTERM_DRY_RUN=1` (só baixar e verificar).
+
+### Download manual
 
 Os instaladores ficam na página de [Releases](https://github.com/sposito88/openterm-hub/releases):
 
