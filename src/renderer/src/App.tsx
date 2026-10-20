@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { comboFromEvent, resolveShortcuts, type ShortcutAction } from '@shared/shortcuts'
 import { api } from './api'
 import { Icon, type IconName } from './components/Icon'
@@ -15,11 +15,14 @@ import { KnownHosts, Settings, shortcutRecording } from './views/Settings'
 import { SftpTab } from './views/SftpTab'
 import { Snippets } from './views/Snippets'
 import { TerminalTab } from './views/TerminalTab'
+import { Workspaces } from './views/Workspaces'
+import { WorkspaceTab } from './views/WorkspaceTab'
 
 const NAV: Array<{ view: View; icon: IconName; label: TKey }> = [
   { view: 'hosts', icon: 'server', label: 'hosts' },
   { view: 'keys', icon: 'key', label: 'keys' },
   { view: 'identities', icon: 'user', label: 'identities' },
+  { view: 'workspaces', icon: 'workspace', label: 'workspaces' },
   { view: 'forwards', icon: 'tunnel', label: 'forwards' },
   { view: 'snippets', icon: 'code', label: 'snippets' },
   { view: 'knownHosts', icon: 'shield', label: 'knownHosts' },
@@ -29,6 +32,7 @@ const NAV: Array<{ view: View; icon: IconName; label: TKey }> = [
 const VIEWS: Record<View, () => React.JSX.Element> = {
   hosts: Hosts,
   identities: Identities,
+  workspaces: Workspaces,
   keys: Keys,
   forwards: Forwards,
   snippets: Snippets,
@@ -114,7 +118,9 @@ export function App() {
   const t = useT()
   const snapshot = useApp((s) => s.snapshot)
   const uiLight = useUiLight()
-  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab } = useApp()
+  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab, mergeTabs } = useApp()
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [dropZone, setDropZone] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
 
   useEffect(() => {
     void useApp.getState().refresh()
@@ -173,8 +179,33 @@ export function App() {
             onClick={() => activate(tab.id)}
             onAuxClick={(e) => e.button === 1 && closeTab(tab.id)}
             role="tab"
+            draggable={tab.kind === 'terminal' || tab.kind === 'workspace'}
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/openterm-tab', tab.id)
+              e.dataTransfer.effectAllowed = 'move'
+              setDraggingTabId(tab.id)
+            }}
+            onDragEnd={() => {
+              setDraggingTabId(null)
+              setDropZone(null)
+            }}
+            onDragOver={(e) => {
+              if (draggingTabId && draggingTabId !== tab.id) {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              const srcId = e.dataTransfer.getData('text/openterm-tab')
+              if (srcId && srcId !== tab.id) {
+                mergeTabs(srcId, tab.id, 'horizontal')
+              }
+              setDraggingTabId(null)
+              setDropZone(null)
+            }}
           >
-            <Icon name={tab.kind === 'sftp' ? 'folder' : 'terminal'} />
+            <Icon name={tab.kind === 'sftp' ? 'folder' : tab.kind === 'workspace' ? 'workspace' : 'terminal'} />
             <span>{tab.title}</span>
             <button
               className="tab-close"
@@ -208,9 +239,55 @@ export function App() {
         </div>
         {tabs.map((tab) => (
           <div key={tab.id} className="pane" hidden={activeTab !== tab.id}>
-            {tab.kind === 'terminal' ? <TerminalTab tab={tab} active={activeTab === tab.id} /> : <SftpTab tab={tab} />}
+            {tab.kind === 'terminal' ? (
+              <TerminalTab tab={tab} active={activeTab === tab.id} />
+            ) : tab.kind === 'workspace' ? (
+              <WorkspaceTab tab={tab} />
+            ) : (
+              <SftpTab tab={tab} />
+            )}
           </div>
         ))}
+        {draggingTabId && activeTab && activeTab !== draggingTabId && (
+          <div
+            className="workspace-drop-overlay"
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              const rect = e.currentTarget.getBoundingClientRect()
+              const x = (e.clientX - rect.left) / rect.width
+              const y = (e.clientY - rect.top) / rect.height
+              if (x < 0.35) setDropZone('left')
+              else if (x > 0.65) setDropZone('right')
+              else if (y < 0.5) setDropZone('top')
+              else setDropZone('bottom')
+            }}
+            onDragLeave={() => setDropZone(null)}
+            onDrop={(e) => {
+              e.preventDefault()
+              const srcId = e.dataTransfer.getData('text/openterm-tab')
+              if (srcId && activeTab && srcId !== activeTab) {
+                const dir = dropZone === 'top' || dropZone === 'bottom' ? 'vertical' : 'horizontal'
+                mergeTabs(srcId, activeTab, dir)
+              }
+              setDraggingTabId(null)
+              setDropZone(null)
+            }}
+          >
+            <div className={`drop-zone-quadrant left ${dropZone === 'left' ? 'hover' : ''}`}>
+              <span>{t('splitHorizontal')} (←)</span>
+            </div>
+            <div className={`drop-zone-quadrant right ${dropZone === 'right' ? 'hover' : ''}`}>
+              <span>{t('splitHorizontal')} (→)</span>
+            </div>
+            <div className={`drop-zone-quadrant top ${dropZone === 'top' ? 'hover' : ''}`}>
+              <span>{t('splitVertical')} (↑)</span>
+            </div>
+            <div className={`drop-zone-quadrant bottom ${dropZone === 'bottom' ? 'hover' : ''}`}>
+              <span>{t('splitVertical')} (↓)</span>
+            </div>
+          </div>
+        )}
       </main>
 
       <Prompts />

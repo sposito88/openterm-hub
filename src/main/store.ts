@@ -7,6 +7,7 @@ import {
   type ForwardRule,
   type Host,
   type Identity,
+  type Workspace,
   type KnownHost,
   type Settings,
   type Snapshot,
@@ -17,6 +18,7 @@ import {
 interface Data {
   hosts: Host[]
   identities: Identity[]
+  workspaces: Workspace[]
   keys: SshKey[]
   snippets: Snippet[]
   forwards: ForwardRule[]
@@ -31,6 +33,7 @@ function emptyData(): Data {
   return {
     hosts: [],
     identities: [],
+    workspaces: [],
     keys: [],
     snippets: [],
     forwards: [],
@@ -75,6 +78,7 @@ export class Store {
     this.data = { ...emptyData(), ...loaded, settings }
     // Hosts saved before identities existed.
     this.data.hosts = this.data.hosts.map((h) => ({ ...h, identityId: h.identityId ?? null }))
+    this.data.workspaces = this.data.workspaces ?? []
     this.secrets = readJson<Record<string, string>>(this.secretsFile, {})
   }
 
@@ -111,8 +115,8 @@ export class Store {
   }
 
   snapshot(): Snapshot {
-    const { hosts, identities, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { hosts, identities, keys, snippets, forwards, knownHosts, settings, secureStorage: this.secureStorage }
+    const { hosts, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
+    return { hosts, identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings, secureStorage: this.secureStorage }
   }
 
   // ---- secrets -------------------------------------------------------------
@@ -137,7 +141,7 @@ export class Store {
 
   // ---- generic collections -------------------------------------------------
 
-  private upsert<K extends 'hosts' | 'identities' | 'keys' | 'snippets' | 'forwards'>(
+  private upsert<K extends 'hosts' | 'identities' | 'workspaces' | 'keys' | 'snippets' | 'forwards'>(
     key: K,
     item: Omit<Data[K][number], 'id'> & { id?: string }
   ): Data[K][number] {
@@ -150,7 +154,7 @@ export class Store {
     return full
   }
 
-  private remove(key: 'hosts' | 'identities' | 'keys' | 'snippets' | 'forwards', id: string): void {
+  private remove(key: 'hosts' | 'identities' | 'workspaces' | 'keys' | 'snippets' | 'forwards', id: string): void {
     const list = this.data[key] as Array<{ id: string }>
     this.data[key] = list.filter((x) => x.id !== id) as never
   }
@@ -211,6 +215,26 @@ export class Store {
       return { username: identity.username, password: this.getSecret(`identity:${identity.id}:password`), keyId: identity.keyId }
     }
     return { username: host.username, password: this.getSecret(`host:${host.id}:password`), keyId: host.keyId }
+  }
+
+
+  // ---- workspaces ------------------------------------------------------------
+
+  workspaces(): Workspace[] {
+    return this.data.workspaces ?? []
+  }
+
+  workspace(id: string): Workspace | undefined {
+    return (this.data.workspaces ?? []).find((w) => w.id === id)
+  }
+
+  saveWorkspace(workspace: Omit<Workspace, 'id'> & { id?: string }): Workspace {
+    return this.upsert('workspaces', workspace)
+  }
+
+  deleteWorkspace(id: string): void {
+    this.remove('workspaces', id)
+    this.commit()
   }
 
   // ---- keys ----------------------------------------------------------------
@@ -316,8 +340,8 @@ export class Store {
 
   /** Backup without any secret (passwords, private keys). */
   exportBackup(): object {
-    const { hosts, identities, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { format: 'openterm-hub-backup', version: 1, hosts, identities, keys, snippets, forwards, knownHosts, settings }
+    const { hosts, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
+    return { format: 'openterm-hub-backup', version: 1, hosts, identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings }
   }
 
   importBackup(raw: unknown): void {
@@ -336,6 +360,7 @@ export class Store {
       this.data.hosts,
       b.hosts?.map((h) => ({ ...h, identityId: h.identityId ?? null, hasPassword: !!this.getSecret(`host:${h.id}:password`) }))
     )
+    this.data.workspaces = merge(this.data.workspaces ?? [], (b as { workspaces?: Workspace[] }).workspaces)
     this.data.keys = merge(this.data.keys, b.keys)
     this.data.snippets = merge(this.data.snippets, b.snippets)
     this.data.forwards = merge(this.data.forwards, b.forwards)

@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
-import type { Settings, Suggestion } from '@shared/types'
+import type { SessionTarget, Settings, Suggestion } from '@shared/types'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { ensureFontLoaded, fontStack } from '../fonts'
@@ -62,12 +62,48 @@ function beep(): void {
   osc.stop(audio.currentTime + 0.08)
 }
 
-export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
+export interface TerminalTabProps {
+  tab: Tab
+  active: boolean
+  paneId?: string
+  paneTarget?: SessionTarget
+  paneTitle?: string
+  showPaneHeader?: boolean
+  broadcastActive?: boolean
+  isMaximized?: boolean
+  onToggleBroadcast?: () => void
+  onBroadcastWrite?: (data: string) => void
+  onSplit?: (direction: 'horizontal' | 'vertical') => void
+  onClosePane?: () => void
+  onToggleMaximize?: () => void
+  onSessionReady?: (paneId: string, sessionId: string) => void
+  onSessionClosed?: (paneId: string) => void
+}
+
+export function TerminalTab(props: TerminalTabProps) {
+  const {
+    tab,
+    active,
+    paneId,
+    paneTarget,
+    paneTitle,
+    showPaneHeader,
+    broadcastActive,
+    isMaximized,
+    onToggleBroadcast,
+    onBroadcastWrite,
+    onSplit,
+    onClosePane,
+    onToggleMaximize,
+    onSessionReady,
+    onSessionClosed
+  } = props
   const t = useT()
   const settings = useApp((s) => s.snapshot!.settings)
   const uiLight = useUiLight()
   const snippets = useApp((s) => s.snapshot!.snippets)
-  const host = useApp((s) => (tab.target.kind === 'host' ? s.snapshot!.hosts.find((h) => h.id === (tab.target as { hostId: string }).hostId) : undefined))
+  const effectiveTarget = paneTarget || tab.target
+  const host = useApp((s) => (effectiveTarget.kind === 'host' ? s.snapshot!.hosts.find((h) => h.id === (effectiveTarget as { hostId: string }).hostId) : undefined))
   const hostEl = useRef<HTMLDivElement>(null)
   const wrapEl = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -181,7 +217,11 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
     const sendInput = (data: string): void => {
       if (!sessionId) return
       const submitted = tracker.feed(data)
-      api.writeSession(sessionId, data)
+      if (broadcastActive && onBroadcastWrite) {
+        onBroadcastWrite(data)
+      } else {
+        api.writeSession(sessionId, data)
+      }
       if (submitted !== undefined) recordIfEchoed(submitted)
       if (submitted !== undefined || data.startsWith('\x1b')) setPopup(null)
       else refreshSuggestions()
@@ -219,24 +259,27 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
       return true
     }
 
+    const sKey = paneId || tab.id
     const connect = async (): Promise<void> => {
       cancelReconnect()
       exited = false
       tracker.reset()
-      const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : tab.title
+      const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : (paneTitle || tab.title)
       term.write(`\x1b[2m${translate('connecting')} ${label}…\x1b[0m\r\n`)
       try {
-        const info = await api.openSession(tab.target, term.cols, term.rows)
+        const info = await api.openSession(effectiveTarget, term.cols, term.rows)
         if (disposed) return api.closeSession(info.id)
         attempt = 0
         sessionId = info.id
-        tabSessions.set(tab.id, info.id)
+        tabSessions.set(sKey, info.id)
+        onSessionReady?.(sKey, info.id)
         unsubscribe = subscribe(info.id, {
           data: (d) => term.write(d),
           exit: (reason) => {
             exited = true
             sessionId = null
-            tabSessions.delete(tab.id)
+            tabSessions.delete(sKey)
+            onSessionClosed?.(sKey)
             unsubscribe?.()
             setPopup(null)
             term.write(`\r\n\x1b[33m[${translate('sessionClosed')}: ${reason}]\x1b[0m\r\n`)
@@ -328,10 +371,11 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
       cancelReconnect()
       observer.disconnect()
       el.removeEventListener('contextmenu', onContextMenu)
-      terminalActions.delete(tab.id)
+      terminalActions.delete(sKey)
       unsubscribe?.()
       if (sessionId) api.closeSession(sessionId)
-      tabSessions.delete(tab.id)
+      tabSessions.delete(sKey)
+      onSessionClosed?.(sKey)
       term.dispose()
     }
     // The terminal lives for the whole life of the tab.
@@ -367,9 +411,57 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
 
   const termBg = findTerminalTheme(settings.terminalTheme, uiLight).colors.background
 
+  const displayLabel = host?.label || paneTitle || tab.title
+  const displaySub = host
+    ? `${host.protocol}, ${host.username || 'root'}`
+    : effectiveTarget.kind === 'local'
+      ? 'local'
+      : 'serial'
+
   return (
     <>
-      <div className="term-toolbar">
+      {showPaneHeader ? (
+        <div className="pane-header">
+          <div className="pane-title">
+            <Icon name={effectiveTarget.kind === 'host' ? 'server' : 'terminal'} size={14} />
+            <span className="pane-label">{displayLabel}</span>
+            <span className="pane-sub dim mono">{displaySub}</span>
+          </div>
+          <div className="pane-actions">
+            {onToggleBroadcast && (
+              <button
+                className={`btn small ${broadcastActive ? 'active on' : ''}`}
+                title={broadcastActive ? t('broadcastOn') : t('broadcastOff')}
+                onClick={onToggleBroadcast}
+              >
+                <Icon name="broadcast" size={13} />
+                <span>Broadcast</span>
+              </button>
+            )}
+            {onSplit && (
+              <>
+                <button className="btn small icon" title={t('splitHorizontal')} onClick={() => onSplit('horizontal')}>
+                  <Icon name="splitHorizontal" size={14} />
+                </button>
+                <button className="btn small icon" title={t('splitVertical')} onClick={() => onSplit('vertical')}>
+                  <Icon name="splitVertical" size={14} />
+                </button>
+              </>
+            )}
+            {onToggleMaximize && (
+              <button className="btn small icon" title={isMaximized ? t('restorePane') : t('maximizePane')} onClick={onToggleMaximize}>
+                <Icon name={isMaximized ? 'minimize' : 'maximize'} size={13} />
+              </button>
+            )}
+            {onClosePane && (
+              <button className="btn small icon danger" title={t('close')} onClick={onClosePane}>
+                <Icon name="x" size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="term-toolbar">
         <div style={{ position: 'relative' }}>
           <button className="btn small" onClick={() => setSnippetMenu(!snippetMenu)} disabled={snippets.length === 0}>
             <Icon name="code" /> {t('snippets')}
@@ -400,6 +492,7 @@ export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
           </button>
         )}
       </div>
+      )}
       <div className="term-wrap" ref={wrapEl} style={{ background: termBg }}>
         <div className="term-host" ref={hostEl} />
         {searching && (

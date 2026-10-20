@@ -10,14 +10,25 @@ import type {
 import { api, errorMessage } from './api'
 import { translate } from './i18n'
 
-export type View = 'hosts' | 'identities' | 'keys' | 'forwards' | 'snippets' | 'knownHosts' | 'logs' | 'settings'
+export type View = 'hosts' | 'identities' | 'workspaces' | 'keys' | 'forwards' | 'snippets' | 'knownHosts' | 'logs' | 'settings'
 export type SettingsSection = 'terminal' | 'appearance' | 'sftp' | 'shortcuts' | 'logs' | 'backup' | 'about'
+
+export interface WorkspaceTabPane {
+  id: string
+  target: SessionTarget
+  title: string
+}
 
 export interface Tab {
   id: string
-  kind: 'terminal' | 'sftp'
+  kind: 'terminal' | 'sftp' | 'workspace'
   title: string
   target: SessionTarget
+  layout?: 'horizontal' | 'vertical'
+  panes?: WorkspaceTabPane[]
+  broadcast?: boolean
+  maximizedPaneId?: string | null
+  splitRatio?: number
 }
 
 interface Toast {
@@ -45,6 +56,13 @@ interface AppState {
   setView(v: View): void
   openSettings(section: SettingsSection): void
   openTab(kind: Tab['kind'], title: string, target: SessionTarget): void
+  openWorkspace(workspace: any): void
+  splitTab(tabId: string, direction: 'horizontal' | 'vertical', target: SessionTarget, title: string): void
+  mergeTabs(sourceTabId: string, targetTabId: string, direction: 'horizontal' | 'vertical'): void
+  closePane(tabId: string, paneId: string): void
+  toggleBroadcast(tabId: string): void
+  toggleMaximizePane(tabId: string, paneId: string): void
+  setSplitRatio(tabId: string, ratio: number): void
   closeTab(id: string): void
   activate(id: string | null): void
   renameTab(id: string, title: string): void
@@ -78,6 +96,155 @@ export const useApp = create<AppState>((set, get) => ({
       tabs: [...s.tabs, { id, kind, title, target }],
       activeTab: id,
       lastTerminal: kind === 'terminal' ? id : s.lastTerminal
+    }))
+  },
+
+  openWorkspace: (ws) => {
+    const id = `tab-${++tabSeq}`
+    const snap = get().snapshot
+    const panes: WorkspaceTabPane[] = ws.panes.map((p: any, i: number) => {
+      let tTitle = p.title
+      if (!tTitle) {
+        if (p.target.kind === 'host') {
+          tTitle = snap?.hosts.find((h) => h.id === p.target.hostId)?.label ?? 'Host'
+        } else if (p.target.kind === 'local') {
+          tTitle = 'Terminal local'
+        } else {
+          tTitle = 'Serial'
+        }
+      }
+      return { id: `${id}-p${i + 1}`, target: p.target, title: tTitle }
+    })
+    set((s) => ({
+      tabs: [...s.tabs, {
+        id,
+        kind: 'workspace',
+        title: ws.label || 'Workspace',
+        target: panes[0]?.target ?? { kind: 'local' },
+        layout: ws.layout || 'horizontal',
+        panes,
+        broadcast: false,
+        splitRatio: 50
+      }],
+      activeTab: id,
+      lastTerminal: id
+    }))
+  },
+
+  splitTab: (tabId, direction, target, title) => {
+    set((s) => {
+      const tab = s.tabs.find((t) => t.id === tabId)
+      if (!tab) return s
+      const newPaneId = `pane-${Date.now()}`
+      if (tab.kind === 'workspace') {
+        const curPanes = tab.panes ?? []
+        return {
+          tabs: s.tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  layout: direction,
+                  panes: [...curPanes, { id: newPaneId, target, title }]
+                }
+              : t
+          )
+        }
+      } else {
+        const p1: WorkspaceTabPane = { id: `${tab.id}-p1`, target: tab.target, title: tab.title }
+        const p2: WorkspaceTabPane = { id: newPaneId, target, title }
+        return {
+          tabs: s.tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  kind: 'workspace',
+                  layout: direction,
+                  panes: [p1, p2],
+                  broadcast: false,
+                  splitRatio: 50
+                }
+              : t
+          )
+        }
+      }
+    })
+  },
+
+  mergeTabs: (sourceTabId, targetTabId, direction) => {
+    if (sourceTabId === targetTabId) return
+    set((s) => {
+      const source = s.tabs.find((t) => t.id === sourceTabId)
+      const target = s.tabs.find((t) => t.id === targetTabId)
+      if (!source || !target) return s
+      const sourcePanes: WorkspaceTabPane[] =
+        source.kind === 'workspace' && source.panes
+          ? source.panes
+          : [{ id: `${source.id}-p1`, target: source.target, title: source.title }]
+      const targetPanes: WorkspaceTabPane[] =
+        target.kind === 'workspace' && target.panes
+          ? target.panes
+          : [{ id: `${target.id}-p1`, target: target.target, title: target.title }]
+      const mergedPanes = [...targetPanes, ...sourcePanes]
+      const title = target.kind === 'workspace' ? target.title : `${target.title} + ${source.title}`
+      const newTabs = s.tabs
+        .filter((t) => t.id !== sourceTabId)
+        .map((t) =>
+          t.id === targetTabId
+            ? {
+                ...t,
+                kind: 'workspace' as const,
+                title,
+                layout: direction,
+                panes: mergedPanes,
+                broadcast: t.broadcast ?? false,
+                splitRatio: 50
+              }
+            : t
+        )
+      return { tabs: newTabs, activeTab: targetTabId, lastTerminal: targetTabId }
+    })
+  },
+
+  closePane: (tabId, paneId) => {
+    const tab = get().tabs.find((t) => t.id === tabId)
+    if (!tab || tab.kind !== 'workspace' || !tab.panes) return
+    const remaining = tab.panes.filter((p) => p.id !== paneId)
+    if (remaining.length === 0) {
+      get().closeTab(tabId)
+    } else {
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                panes: remaining,
+                maximizedPaneId: t.maximizedPaneId === paneId ? null : t.maximizedPaneId
+              }
+            : t
+        )
+      }))
+    }
+  },
+
+  toggleBroadcast: (tabId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, broadcast: !t.broadcast } : t))
+    }))
+  },
+
+  toggleMaximizePane: (tabId, paneId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, maximizedPaneId: t.maximizedPaneId === paneId ? null : paneId }
+          : t
+      )
+    }))
+  },
+
+  setSplitRatio: (tabId, ratio) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, splitRatio: Math.max(15, Math.min(85, ratio)) } : t))
     }))
   },
 

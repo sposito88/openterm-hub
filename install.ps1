@@ -3,7 +3,7 @@
 #   irm https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.ps1 | iex
 #
 # Downloads the latest setup .exe, checks its SHA-256 against the release's
-# SHA256SUMS.txt and runs the installer. Set $env:OPENTERM_VERSION = 'v0.3.0'
+# SHA256SUMS.txt and runs the installer. Set $env:OPENTERM_VERSION = 'v0.3.1'
 # to install a specific release.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'

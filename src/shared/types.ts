@@ -158,9 +158,23 @@ export interface LogEntry {
   hasTranscript: boolean
 }
 
+export interface WorkspacePane {
+  id: string
+  target: SessionTarget
+  title?: string
+}
+
+export interface Workspace {
+  id: string
+  label: string
+  layout: 'horizontal' | 'vertical'
+  panes: WorkspacePane[]
+}
+
 export interface Snapshot {
   hosts: Host[]
   identities: Identity[]
+  workspaces: Workspace[]
   keys: SshKey[]
   snippets: Snippet[]
   forwards: ForwardRule[]
@@ -279,6 +293,8 @@ export interface OpenTermApi {
   saveIdentity(identity: IdentityInput): Promise<Identity>
   /** Hosts that used it keep working with the identity's username copied in. */
   deleteIdentity(id: string): Promise<void>
+  saveWorkspace(workspace: Omit<Workspace, 'id'> & { id?: string }): Promise<Workspace>
+  deleteWorkspace(id: string): Promise<void>
   importSshConfig(): Promise<number>
   generateKey(req: GeneratedKeyRequest): Promise<SshKey>
   importKey(req: ImportKeyRequest): Promise<SshKey>

@@ -28,6 +28,13 @@ const paths = {
   minus: 'M5 12h14',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   keyboard: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
+  broadcast: 'M4.9 19.1A10 10 0 0 1 4.9 4.9M7.8 16.2A6 6 0 0 1 7.8 7.8M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm4.2 2.2a6 6 0 0 0 0-8.4m2.9 11.3a10 10 0 0 0 0-14.2',
+  splitHorizontal: 'M4 4h16v16H4zm8 0v16',
+  splitVertical: 'M4 4h16v16H4zm0 8h16',
+  maximize: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
+  minimize: 'M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7',
+  workspace: 'M3 3h7v7H3zm11 0h7v7h-7zm0 11h7v7h-7zm-11 0h7v7H3z',
+  save: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8',
   palette: 'M12 3a9 9 0 1 0 0 18c1 0 1.5-.7 1.5-1.5S13 18 13 17s.7-1.5 1.5-1.5H17a4 4 0 0 0 4-4C21 6.9 17 3 12 3zM7.5 11h.01M10 7.5h.01M14 7.5h.01'
 } as const
 

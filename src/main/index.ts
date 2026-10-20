@@ -246,6 +246,8 @@ app.whenReady().then(() => {
       return identity
     },
     deleteIdentity: (id) => store.deleteIdentity(id),
+    saveWorkspace: (input) => store.saveWorkspace(input),
+    deleteWorkspace: (id) => store.deleteWorkspace(id),
     importSshConfig: () => importSshConfig(store),
     generateKey: (req) => generateKey(store, req),
     importKey: (req) => importKey(store, req),

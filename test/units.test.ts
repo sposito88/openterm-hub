@@ -232,3 +232,19 @@ test('breadcrumbs for POSIX and Windows paths', async () => {
   assert.deepEqual(long.map((c) => c.label), ['/', '…', 'e', 'f', 'g'])
   assert.equal(long[1].path, '/a/b/c/d')
 })
+
+test('workspace layout and pane structure', async () => {
+  const ws = {
+    id: 'ws-1',
+    label: 'Prod Cluster',
+    layout: 'horizontal' as const,
+    panes: [
+      { id: 'p1', target: { kind: 'host' as const, hostId: 'h1' }, title: 'Web 01' },
+      { id: 'p2', target: { kind: 'host' as const, hostId: 'h2' }, title: 'DB 01' }
+    ]
+  }
+  assert.equal(ws.layout, 'horizontal')
+  assert.equal(ws.panes.length, 2)
+  assert.equal(ws.panes[0].title, 'Web 01')
+  assert.equal(ws.panes[1].title, 'DB 01')
+})

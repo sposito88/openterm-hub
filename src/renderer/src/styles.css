@@ -1276,3 +1276,261 @@ textarea.input {
   color: var(--text-dim);
   padding: 0 1px;
 }
+
+
+/* Workspaces & Split Panes */
+.workspace-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  gap: 8px;
+}
+
+.workspace-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.workspace-title {
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 2px 6px;
+  color: var(--text);
+}
+
+.workspace-title:hover {
+  background: var(--bg-hover);
+}
+
+.workspace-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-panes {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-panes.row {
+  flex-direction: row;
+}
+
+.workspace-panes.col {
+  flex-direction: column;
+}
+
+.workspace-pane-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.workspace-pane-item:focus-within {
+  border-color: var(--accent);
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.pane-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.pane-label {
+  font-weight: 600;
+}
+
+.pane-sub {
+  font-size: 11px;
+}
+
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 2px;
+}
+
+.status-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+.status-dot.offline {
+  background: #ef4444;
+}
+
+.btn.active, .btn.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.split-divider {
+  position: absolute;
+  z-index: 10;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.split-divider.horizontal {
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.split-divider.vertical {
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.split-divider:hover {
+  background: var(--accent);
+}
+
+.workspace-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  padding: 8px;
+  gap: 8px;
+}
+
+.drop-zone-quadrant {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  transition: all 0.15s;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.drop-zone-quadrant.hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker-modal {
+  width: 440px;
+  max-width: 92vw;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+}
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.picker-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.picker-list {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
