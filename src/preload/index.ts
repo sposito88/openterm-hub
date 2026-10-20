@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { OpenTermApi } from '@shared/types'
 
 /** Request/response calls. */
@@ -11,7 +11,8 @@ const invoke = [
   'openSession', 'listSerialPorts',
   'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload',
   'localHome', 'localList', 'suggest',
-  'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile'
+  'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile', 'sftpChmod',
+  'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram'
 ] as const
 
 /** Fire-and-forget calls (hot paths such as keystrokes). */
@@ -40,6 +41,8 @@ const api: Record<string, unknown> = {
   onLogsChanged: on('logs:changed'),
   onSftpSynced: on('sftp:synced')
 }
+// Files dropped from the OS file manager: their path is only readable here.
+api.pathForFile = (file: File) => webUtils.getPathForFile(file)
 for (const name of invoke) api[name] = (...args: unknown[]) => ipcRenderer.invoke(`api:${name}`, ...args)
 for (const name of fire) api[name] = (...args: unknown[]) => ipcRenderer.send(`api:${name}`, ...args)
 

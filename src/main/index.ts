@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type IpcMainInvokeEvent } from 'electron'
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { promises as fsp, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Host, HostInput, OpenTermApi, SessionTarget } from '@shared/types'
@@ -12,7 +12,7 @@ import { generateKey, importKey, installKeyOnHost } from './keys'
 import { Logs } from './logs'
 import { Prompts } from './prompts'
 import { Sessions } from './sessions'
-import { localHome, localList, Sftp, splitCommand, type Opener } from './sftp'
+import { launch, localHome, localList, Sftp, splitCommand, type Opener } from './sftp'
 import { loadShellHistory } from './shellHistory'
 import { parseJump, parseSshConfig } from './sshconfig'
 import { Store } from './store'
@@ -195,6 +195,12 @@ app.whenReady().then(() => {
   const specs = figSpecs()
   store.onChange(() => send('snapshot:changed'))
 
+  /** Program associated with the file's extension in Settings → SFTP ('' = system default). */
+  const associatedCommand = (path: string): string => {
+    const ext = path.split(/[\\/]/).pop()!.split('.').slice(1).pop()?.toLowerCase() ?? ''
+    return store.settings().fileAssociations.find((a) => a.ext.replace(/^\./, '').toLowerCase() === ext)?.command ?? ''
+  }
+
   // Local shell history (bash/zsh/fish) feeds the autocomplete when enabled.
   let shellHistory: string[] = []
   const reloadShellHistory = (): void => {
@@ -280,15 +286,21 @@ app.whenReady().then(() => {
     sftpMkdir: (id, path) => sftp.mkdir(id, path),
     sftpRename: (id, from, to) => sftp.rename(id, from, to),
     sftpDelete: (id, path) => sftp.delete(id, path),
-    sftpUpload: (id, local, remoteDir) => sftp.upload(id, local, remoteDir),
-    sftpDownload: (id, remote, localDir) => sftp.download(id, remote, localDir),
+    sftpUpload: (id, local, remoteDir, destName) => sftp.upload(id, local, remoteDir, destName),
+    sftpDownload: (id, remote, localDir, destName) => sftp.download(id, remote, localDir, destName),
     sftpClose: (id) => sftp.close(id),
     localHome: () => localHome(),
     localList: (path) => localList(path),
-    sftpOpenFile: (id, remotePath) => {
-      const ext = remotePath.split('/').pop()!.split('.').slice(1).pop()?.toLowerCase() ?? ''
-      const assoc = store.settings().fileAssociations.find((a) => a.ext.replace(/^\./, '').toLowerCase() === ext)
-      return sftp.openFile(id, remotePath, assoc?.command ?? '')
+    sftpOpenFile: (id, remotePath, command) => sftp.openFile(id, remotePath, command ?? associatedCommand(remotePath)),
+    sftpChmod: (id, path, mode) => sftp.chmod(id, path, mode),
+    localOpen: (path, command) => launch(openWith(path, command ?? associatedCommand(path))),
+    localMkdir: (path) => fsp.mkdir(path),
+    localRename: (from, to) => fsp.rename(from, to),
+    localDelete: (path) => shell.trashItem(path),
+    localChmod: (path, mode) => fsp.chmod(path, mode & 0o7777),
+    pickProgram: async () => {
+      const res = await dialog.showOpenDialog(win!, { properties: ['openFile'] })
+      return res.canceled ? null : res.filePaths[0]
     },
     listLogs: () => logs.list(),
     readLog: (id) => logs.read(id),

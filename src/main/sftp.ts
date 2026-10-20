@@ -23,6 +23,22 @@ function p<T>(fn: (cb: (err: Error | null | undefined, v: T) => void) => void): 
   return new Promise((resolve, reject) => fn((err, v) => (err ? reject(err) : resolve(v))))
 }
 
+/**
+ * Waits for an external program to start, but never forever: some launchers
+ * only return when the program exits, which would leave the IPC call hanging
+ * (Electron then reports "reply was never sent").
+ */
+export function launch(started: Promise<void>, timeoutMs = 10_000): Promise<void> {
+  return Promise.race([started, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))])
+}
+
+/** A destination name must stay inside the destination folder. */
+function safeName(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new Error('Nome de destino inválido')
+  return name
+}
+
 export function sortEntries(entries: FileEntry[]): FileEntry[] {
   return entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
 }
@@ -105,7 +121,7 @@ export class Sftp {
       }, 400)
     })
     conn.opened.push({ watcher, dir })
-    await this.opener(local, command)
+    await launch(this.opener(local, command))
   }
 
   closeAll(): void {
@@ -134,6 +150,11 @@ export class Sftp {
     return p<void>((cb) => sftp.mkdir(path, cb))
   }
 
+  chmod(id: string, path: string, mode: number): Promise<void> {
+    const { sftp } = this.conn(id)
+    return p<void>((cb) => sftp.chmod(path, mode & 0o7777, cb))
+  }
+
   rename(id: string, from: string, to: string): Promise<void> {
     const { sftp } = this.conn(id)
     return p<void>((cb) => sftp.rename(from, to, cb))
@@ -150,9 +171,9 @@ export class Sftp {
   }
 
   /** Starts an upload in the background; progress is reported through events. */
-  upload(id: string, localPath: string, remoteDir: string): string {
+  upload(id: string, localPath: string, remoteDir: string, destName?: string): string {
     const { sftp } = this.conn(id)
-    const name = basename(localPath)
+    const name = safeName(destName) ?? basename(localPath)
     return this.transfer('upload', name, async (step) => {
       const total = await localSize(localPath)
       const put = async (src: string, dst: string): Promise<void> => {
@@ -170,9 +191,9 @@ export class Sftp {
     })
   }
 
-  download(id: string, remotePath: string, localDir: string): string {
+  download(id: string, remotePath: string, localDir: string, destName?: string): string {
     const { sftp } = this.conn(id)
-    const name = posix.basename(remotePath)
+    const name = safeName(destName) ?? posix.basename(remotePath)
     return this.transfer('download', name, async (step) => {
       const total = await this.remoteSize(sftp, remotePath)
       const get = async (src: string, dst: string): Promise<void> => {

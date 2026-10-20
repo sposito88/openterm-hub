@@ -265,8 +265,9 @@ export interface OpenTermApi {
   sftpMkdir(sftpId: string, path: string): Promise<void>
   sftpRename(sftpId: string, from: string, to: string): Promise<void>
   sftpDelete(sftpId: string, path: string): Promise<void>
-  sftpUpload(sftpId: string, localPath: string, remoteDir: string): Promise<string>
-  sftpDownload(sftpId: string, remotePath: string, localDir: string): Promise<string>
+  /** destName: name in the destination folder (default: the source's name). */
+  sftpUpload(sftpId: string, localPath: string, remoteDir: string, destName?: string): Promise<string>
+  sftpDownload(sftpId: string, remotePath: string, localDir: string, destName?: string): Promise<string>
   sftpClose(sftpId: string): void
   localHome(): Promise<string>
   localList(path: string): Promise<FileEntry[]>
@@ -275,7 +276,19 @@ export interface OpenTermApi {
   readLog(id: string): Promise<string>
   deleteLog(id: string): Promise<void>
   clearLogs(): Promise<void>
-  sftpOpenFile(sftpId: string, remotePath: string): Promise<void>
+  /** command: program to open with; omitted = the file association or the system default. */
+  sftpOpenFile(sftpId: string, remotePath: string, command?: string): Promise<void>
+  sftpChmod(sftpId: string, path: string, mode: number): Promise<void>
+  localOpen(path: string, command?: string): Promise<void>
+  localMkdir(path: string): Promise<void>
+  localRename(from: string, to: string): Promise<void>
+  /** Moves to the system trash. */
+  localDelete(path: string): Promise<void>
+  localChmod(path: string, mode: number): Promise<void>
+  /** Local path of a file dropped from the OS file manager. */
+  pathForFile(file: File): string
+  /** File picker for "Open with…"; returns the program path. */
+  pickProgram(): Promise<string | null>
 
   suggest(line: string): Promise<Suggestion[]>
   recordHistory(line: string): void
