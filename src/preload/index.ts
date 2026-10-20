@@ -1,0 +1,46 @@
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { OpenTermApi } from '@shared/types'
+
+/** Request/response calls. */
+const invoke = [
+  'getSnapshot', 'saveHost', 'deleteHost', 'importSshConfig',
+  'generateKey', 'importKey', 'importKeyFile', 'exportPrivateKey', 'deleteKey', 'installKeyOnHost',
+  'saveSnippet', 'deleteSnippet',
+  'saveForward', 'deleteForward', 'startForward', 'stopForward', 'forwardStatuses',
+  'deleteKnownHost', 'saveSettings', 'exportBackup', 'importBackup',
+  'openSession', 'listSerialPorts',
+  'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload',
+  'localHome', 'localList', 'suggest',
+  'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile'
+] as const
+
+/** Fire-and-forget calls (hot paths such as keystrokes). */
+const fire = [
+  'writeSession', 'resizeSession', 'closeSession', 'sftpClose',
+  'recordHistory', 'answerHostKey', 'answerCredential', 'openExternal'
+] as const
+
+function on(channel: string) {
+  return (cb: (...args: never[]) => void) => {
+    const listener = (_e: IpcRendererEvent, ...args: unknown[]): void => (cb as (...a: unknown[]) => void)(...args)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  }
+}
+
+const api: Record<string, unknown> = {
+  onSessionData: on('session:data'),
+  onSessionExit: on('session:exit'),
+  onHostKeyPrompt: on('prompt:hostKey'),
+  onCredentialPrompt: on('prompt:credential'),
+  onPromptCancel: on('prompt:cancel'),
+  onTransferProgress: on('sftp:progress'),
+  onForwardStatus: on('forward:status'),
+  onSnapshotChanged: on('snapshot:changed'),
+  onLogsChanged: on('logs:changed'),
+  onSftpSynced: on('sftp:synced')
+}
+for (const name of invoke) api[name] = (...args: unknown[]) => ipcRenderer.invoke(`api:${name}`, ...args)
+for (const name of fire) api[name] = (...args: unknown[]) => ipcRenderer.send(`api:${name}`, ...args)
+
+contextBridge.exposeInMainWorld('openterm', api as unknown as OpenTermApi)

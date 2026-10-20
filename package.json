@@ -1,0 +1,64 @@
+{
+  "name": "openterm-hub",
+  "version": "0.1.0",
+  "description": "Open source desktop SSH client: hosts, terminal tabs, SFTP, port forwarding, keys, snippets and autocomplete.",
+  "keywords": [
+    "ssh",
+    "sftp",
+    "terminal",
+    "port-forwarding",
+    "electron",
+    "ssh-client"
+  ],
+  "license": "MIT",
+  "author": "Alan Sposito",
+  "homepage": "https://github.com/sposito88/openterm-hub",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sposito88/openterm-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sposito88/openterm-hub/issues"
+  },
+  "desktopName": "openterm-hub.desktop",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts",
+    "postinstall": "node scripts/postinstall.mjs",
+    "dist": "npm run build && electron-builder --linux -c.directories.output=dist/linux",
+    "notices": "node scripts/notices.mjs",
+    "dist:win": "npm run build && electron-builder --win -c.directories.output=dist/windows",
+    "dist:mac": "npm run build && electron-builder --mac -c.directories.output=dist/mac"
+  },
+  "dependencies": {
+    "@withfig/autocomplete": "2.692.3",
+    "node-pty": "1.1.0",
+    "serialport": "13.0.0",
+    "ssh2": "1.17.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ssh2": "1.15.6",
+    "@vitejs/plugin-react": "5.1.4",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/xterm": "6.0.0",
+    "electron": "43.7.7",
+    "electron-builder": "26.17.0",
+    "electron-vite": "5.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "zustand": "5.0.15"
+  }
+}

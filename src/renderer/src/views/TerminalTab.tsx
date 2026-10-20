@@ -1,0 +1,417 @@
+import { useEffect, useRef, useState } from 'react'
+import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Terminal, type ITerminalOptions } from '@xterm/xterm'
+import type { Settings, Suggestion } from '@shared/types'
+import { api, errorMessage } from '../api'
+import { Icon } from '../components/Icon'
+import { translate, useT } from '../i18n'
+import { LineTracker } from '../lineTracker'
+import { subscribe, tabSessions, terminalActions } from '../sessionBus'
+import { useApp, useUiLight, type Tab } from '../state'
+import { findTerminalTheme } from '../terminalThemes'
+import { openSftp } from './Hosts'
+import { runSnippet } from './Snippets'
+
+const SOURCE_LABEL: Record<Suggestion['source'], string> = {
+  history: 'hist',
+  snippet: 'snippet',
+  command: 'cmd',
+  subcommand: 'sub',
+  option: 'opt'
+}
+
+/** Seconds to wait before each automatic reconnection attempt. */
+const RECONNECT_DELAYS = [2, 4, 8, 15, 30]
+
+interface Popup {
+  items: Suggestion[]
+  sel: number
+  left: number
+  top?: number
+  bottom?: number
+}
+
+function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
+  return {
+    fontFamily: s.fontFamily,
+    fontSize: s.fontSize,
+    cursorStyle: s.cursorStyle,
+    scrollback: s.scrollback,
+    drawBoldTextInBrightColors: s.boldBright,
+    theme: findTerminalTheme(s.terminalTheme, uiLight).colors
+  }
+}
+
+let audio: AudioContext | null = null
+function beep(): void {
+  audio ??= new AudioContext()
+  const osc = audio.createOscillator()
+  const gain = audio.createGain()
+  osc.frequency.value = 880
+  gain.gain.value = 0.05
+  osc.connect(gain).connect(audio.destination)
+  osc.start()
+  osc.stop(audio.currentTime + 0.08)
+}
+
+export function TerminalTab({ tab, active }: { tab: Tab; active: boolean }) {
+  const t = useT()
+  const settings = useApp((s) => s.snapshot!.settings)
+  const uiLight = useUiLight()
+  const snippets = useApp((s) => s.snapshot!.snippets)
+  const host = useApp((s) => (tab.target.kind === 'host' ? s.snapshot!.hosts.find((h) => h.id === (tab.target as { hostId: string }).hostId) : undefined))
+  const hostEl = useRef<HTMLDivElement>(null)
+  const wrapEl = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const settingsRef = useRef(settings)
+  const popupRef = useRef<Popup | null>(null)
+  const acceptRef = useRef<(s: Suggestion) => void>(() => {})
+  const [popup, setPopupState] = useState<Popup | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [snippetMenu, setSnippetMenu] = useState(false)
+  settingsRef.current = settings
+
+  const setPopup = (p: Popup | null): void => {
+    popupRef.current = p
+    setPopupState(p)
+  }
+
+  useEffect(() => {
+    const term = new Terminal({ ...termOptions(settingsRef.current, uiLight), allowProposedApi: true, macOptionIsMeta: true })
+    const fit = new FitAddon()
+    const search = new SearchAddon()
+    term.loadAddon(fit)
+    term.loadAddon(search)
+    term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)))
+    term.open(hostEl.current!)
+    termRef.current = term
+    fitRef.current = fit
+    searchRef.current = search
+    if (hostEl.current!.offsetWidth > 0) fit.fit()
+
+    const tracker = new LineTracker()
+    let sessionId: string | null = null
+    let unsubscribe: (() => void) | null = null
+    let exited = false
+    let disposed = false
+    let suggestTimer: ReturnType<typeof setTimeout> | undefined
+    // Automatic reconnection after a dropped connection.
+    let reconnectTimer: ReturnType<typeof setInterval> | undefined
+    let attempt = 0
+
+    /** True when the typed line is visible at the cursor, i.e. it is echoed (not a password). */
+    const echoed = (line: string): boolean => {
+      const buf = term.buffer.active
+      if (buf.type === 'alternate') return false
+      const row = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true, 0, buf.cursorX) ?? ''
+      const tail = line.slice(-Math.min(line.length, buf.cursorX))
+      return tail.length > 0 && row.endsWith(tail)
+    }
+
+    const refreshSuggestions = (): void => {
+      clearTimeout(suggestTimer)
+      if (!settingsRef.current.autocomplete || !tracker.valid || !tracker.line.trim()) return setPopup(null)
+      const line = tracker.line
+      suggestTimer = setTimeout(async () => {
+        if (!echoed(line)) return setPopup(null)
+        const items = await api.suggest(line).catch(() => [])
+        if (disposed || tracker.line !== line || !tracker.valid) return
+        if (items.length === 0) return setPopup(null)
+        const screen = hostEl.current!.querySelector('.xterm-screen')!.getBoundingClientRect()
+        const cellW = screen.width / term.cols
+        const cellH = screen.height / term.rows
+        const buf = term.buffer.active
+        const left = Math.min(8 + buf.cursorX * cellW, Math.max(8, wrapEl.current!.clientWidth - 300))
+        const below = buf.cursorY < term.rows / 2
+        setPopup({
+          items,
+          sel: 0,
+          left,
+          top: below ? 6 + (buf.cursorY + 1) * cellH + 2 : undefined,
+          bottom: below ? undefined : wrapEl.current!.clientHeight - (6 + buf.cursorY * cellH) + 2
+        })
+      }, 90)
+    }
+
+    /**
+     * Saves a submitted command once its echo has settled on screen. Input that
+     * never shows up on the prompt line (passwords) is not recorded.
+     */
+    const recordIfEchoed = (line: string): void => {
+      const buf = term.buffer.active
+      if (!line.trim() || buf.type === 'alternate') return
+      const y = buf.baseY + buf.cursorY
+      setTimeout(() => {
+        const normal = term.buffer.normal
+        let text = normal.getLine(y)?.translateToString(true) ?? ''
+        for (let i = y; i > 0 && normal.getLine(i)?.isWrapped; i--) {
+          text = (normal.getLine(i - 1)?.translateToString() ?? '') + text
+        }
+        if (text.trimEnd().endsWith(line.trimEnd())) api.recordHistory(line)
+      }, 300)
+    }
+
+    const sendInput = (data: string): void => {
+      if (!sessionId) return
+      const submitted = tracker.feed(data)
+      api.writeSession(sessionId, data)
+      if (submitted !== undefined) recordIfEchoed(submitted)
+      if (submitted !== undefined || data.startsWith('\x1b')) setPopup(null)
+      else refreshSuggestions()
+    }
+
+    const accept = (s: Suggestion): void => {
+      setPopup(null)
+      sendInput('\x7f'.repeat(s.replaceLength) + s.insert)
+    }
+
+    const paste = (): void => {
+      void navigator.clipboard.readText().then((text) => text && term.paste(text))
+    }
+
+    const cancelReconnect = (): void => {
+      clearInterval(reconnectTimer)
+      reconnectTimer = undefined
+    }
+
+    const scheduleReconnect = (): boolean => {
+      const canRetry = settingsRef.current.autoReconnect && tab.target.kind === 'host' && attempt < RECONNECT_DELAYS.length
+      if (!canRetry || disposed) return false
+      let left = RECONNECT_DELAYS[attempt++]
+      const show = (): void => {
+        term.write(`\r\x1b[2K\x1b[33m${translate('reconnecting')} ${left}s (${attempt}/${RECONNECT_DELAYS.length})\x1b[0m \x1b[2m${translate('reconnectHint')}\x1b[0m`)
+      }
+      show()
+      reconnectTimer = setInterval(() => {
+        left--
+        if (left > 0) return show()
+        cancelReconnect()
+        term.write('\r\n')
+        void connect()
+      }, 1000)
+      return true
+    }
+
+    const connect = async (): Promise<void> => {
+      cancelReconnect()
+      exited = false
+      tracker.reset()
+      const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : tab.title
+      term.write(`\x1b[2m${translate('connecting')} ${label}…\x1b[0m\r\n`)
+      try {
+        const info = await api.openSession(tab.target, term.cols, term.rows)
+        if (disposed) return api.closeSession(info.id)
+        attempt = 0
+        sessionId = info.id
+        tabSessions.set(tab.id, info.id)
+        unsubscribe = subscribe(info.id, {
+          data: (d) => term.write(d),
+          exit: (reason) => {
+            exited = true
+            sessionId = null
+            tabSessions.delete(tab.id)
+            unsubscribe?.()
+            setPopup(null)
+            term.write(`\r\n\x1b[33m[${translate('sessionClosed')}: ${reason}]\x1b[0m\r\n`)
+            if (reason !== 'disconnected' || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
+          }
+        })
+      } catch (err) {
+        exited = true
+        term.write(`\x1b[31m${errorMessage(err)}\x1b[0m\r\n`)
+        // Keep retrying only while recovering from a drop, not on the first connection.
+        if (attempt === 0 || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
+      }
+    }
+
+    term.onData((data) => {
+      if (exited) {
+        if (data === '\r') void connect()
+        else if (data === '\x1b' && reconnectTimer) {
+          cancelReconnect()
+          term.write(`\r\n${translate('pressEnter')}\r\n`)
+        }
+        return
+      }
+      sendInput(data)
+    })
+    term.onResize(({ cols, rows }) => sessionId && api.resizeSession(sessionId, cols, rows))
+    term.onBell(() => settingsRef.current.bellSound && beep())
+    // Full-screen programs (vim, less, man) use the alternate buffer; what is typed there
+    // is not a shell command line.
+    term.buffer.onBufferChange((b) => {
+      tracker.reset()
+      if (b.type === 'alternate') tracker.valid = false
+      setPopup(null)
+    })
+    term.onSelectionChange(() => {
+      if (settingsRef.current.copyOnSelect && term.hasSelection()) void navigator.clipboard.writeText(term.getSelection())
+    })
+    const onContextMenu = (e: MouseEvent): void => {
+      if (!settingsRef.current.copyOnSelect) return
+      e.preventDefault()
+      paste()
+    }
+    hostEl.current!.addEventListener('contextmenu', onContextMenu)
+
+    // Keys handled here must also be cancelled: xterm skips preventDefault() for them,
+    // and an uncancelled Tab would move the focus out of the terminal.
+    const handled = (ev: KeyboardEvent): false => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      return false
+    }
+    term.attachCustomKeyEventHandler((ev) => {
+      const p = popupRef.current
+      if (ev.type !== 'keydown' || !p) return true
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        const n = p.items.length
+        setPopup({ ...p, sel: (p.sel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n })
+        return handled(ev)
+      }
+      if (ev.key === 'Tab') {
+        accept(p.items[p.sel])
+        return handled(ev)
+      }
+      if (ev.key === 'Escape') {
+        setPopup(null)
+        return handled(ev)
+      }
+      return true
+    })
+
+    terminalActions.set(tab.id, {
+      copy: () => term.hasSelection() && void navigator.clipboard.writeText(term.getSelection()),
+      paste,
+      selectAll: () => term.selectAll(),
+      find: () => setSearching(true)
+    })
+
+    const observer = new ResizeObserver(() => {
+      if (hostEl.current && hostEl.current.offsetWidth > 0) fit.fit()
+    })
+    observer.observe(hostEl.current!)
+    acceptRef.current = accept
+    void connect()
+
+    const el = hostEl.current!
+    return () => {
+      disposed = true
+      clearTimeout(suggestTimer)
+      cancelReconnect()
+      observer.disconnect()
+      el.removeEventListener('contextmenu', onContextMenu)
+      terminalActions.delete(tab.id)
+      unsubscribe?.()
+      if (sessionId) api.closeSession(sessionId)
+      tabSessions.delete(tab.id)
+      term.dispose()
+    }
+    // The terminal lives for the whole life of the tab.
+  }, [])
+
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    Object.assign(term.options, termOptions(settings, uiLight))
+    if (hostEl.current!.offsetWidth > 0) fitRef.current?.fit()
+  }, [settings, uiLight])
+
+  useEffect(() => {
+    if (!active) return
+    requestAnimationFrame(() => {
+      if (hostEl.current!.offsetWidth > 0) fitRef.current?.fit()
+      termRef.current?.focus()
+    })
+  }, [active])
+
+  const closeSearch = (): void => {
+    setSearching(false)
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }
+
+  const termBg = findTerminalTheme(settings.terminalTheme, uiLight).colors.background
+
+  return (
+    <>
+      <div className="term-toolbar">
+        <div style={{ position: 'relative' }}>
+          <button className="btn small" onClick={() => setSnippetMenu(!snippetMenu)} disabled={snippets.length === 0}>
+            <Icon name="code" /> {t('snippets')}
+          </button>
+          {snippetMenu && (
+            <div className="menu" style={{ left: 0, top: 30 }} onMouseLeave={() => setSnippetMenu(false)}>
+              {snippets.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    setSnippetMenu(false)
+                    runSnippet(s, tab.id)
+                    termRef.current?.focus()
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button className="btn small" onClick={() => setSearching(true)}>
+          <Icon name="search" /> {t('findInTerminal')}
+        </button>
+        {host?.protocol === 'ssh' && (
+          <button className="btn small" onClick={() => openSftp(host)}>
+            <Icon name="folder" /> {t('sftp')}
+          </button>
+        )}
+      </div>
+      <div className="term-wrap" ref={wrapEl} style={{ background: termBg }}>
+        <div className="term-host" ref={hostEl} />
+        {searching && (
+          <div className="term-search">
+            <input
+              className="input"
+              autoFocus
+              placeholder={t('search')}
+              onChange={(e) => searchRef.current?.findNext(e.target.value, { incremental: true })}
+              onKeyDown={(e) => {
+                const q = e.currentTarget.value
+                if (e.key === 'Enter') {
+                  if (e.shiftKey) searchRef.current?.findPrevious(q)
+                  else searchRef.current?.findNext(q)
+                } else if (e.key === 'Escape') closeSearch()
+              }}
+            />
+            <button className="btn small icon" onClick={closeSearch}>
+              <Icon name="x" />
+            </button>
+          </div>
+        )}
+        {popup && (
+          <div className="suggest mono" style={{ left: popup.left, top: popup.top, bottom: popup.bottom }}>
+            {popup.items.map((s, i) => (
+              <div
+                key={s.source + s.label}
+                className={`suggest-item ${i === popup.sel ? 'sel' : ''}`}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  acceptRef.current(s)
+                  termRef.current?.focus()
+                }}
+              >
+                <span className="src">{SOURCE_LABEL[s.source]}</span>
+                <span>{s.label}</span>
+                {s.description && <span className="desc">{s.description}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
