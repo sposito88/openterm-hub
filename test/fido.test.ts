@@ -34,6 +34,8 @@ const { publicKey, privateKey } = generateKeyPairSync('ed25519')
 const rawPub = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)
 const skBlob = Buffer.concat([str(SK_TYPE), str(rawPub), str(APPLICATION)])
 let signatures = 0
+/** Whether the simulated authenticator reports that the user touched it. */
+let userPresence = true
 
 /** Minimal ssh-agent: lists the security key and signs like the authenticator would. */
 function startAgent(socket: string): Server {
@@ -55,7 +57,7 @@ function startAgent(socket: string): Server {
           const keyLen = msg.readUInt32BE(1)
           const dataLen = msg.readUInt32BE(5 + keyLen)
           const data = msg.subarray(9 + keyLen, 9 + keyLen + dataLen)
-          const flags = Buffer.from([0x01]) // user presence: the key was touched
+          const flags = Buffer.from([userPresence ? 0x01 : 0x00]) // bit 0: the key was touched
           const counter = Buffer.alloc(4)
           counter.writeUInt32BE(++signatures)
           const signed = Buffer.concat([sha256(APPLICATION), flags, counter, sha256(data)])
@@ -144,4 +146,22 @@ test('logs in to OpenSSH with a FIDO2 security key held by ssh-agent', { skip },
   assert.equal(res.stdout.trim(), 'fido-ok')
   assert.ok(signatures >= 1, 'the agent signed with the security key')
   assert.ok(notices.some((n) => n.includes('chave de segurança')), 'the user is told to touch the key')
+})
+
+test('OpenSSH refuses a security-key signature made without a touch', { skip }, async (t) => {
+  if (sshdExited) return t.skip('sshd could not start here')
+  userPresence = false
+  try {
+    const host = {
+      id: 'fido', label: 'fido', group: '', hostname: '127.0.0.1', port, username: userInfo().username, protocol: 'ssh' as const,
+      hasPassword: false, keyId: null, useAgent: true, agentForward: false, jumpHostId: null, startupSnippetId: null, tags: []
+    }
+    const deps = {
+      store: { host: () => host, getSecret: () => undefined, knownHost: () => undefined, trustHost: () => {}, settings: () => ({ keepaliveSeconds: 0 }) },
+      prompts: { hostKey: async () => true, credentials: async () => null, notice: () => {} }
+    } as unknown as SshDeps
+    await assert.rejects(connectHost(deps, 'fido'), /authentication methods failed/)
+  } finally {
+    userPresence = true
+  }
 })
