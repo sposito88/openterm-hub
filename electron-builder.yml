@@ -1,0 +1,65 @@
+appId: io.github.openterm-hub
+productName: OpenTerm Hub
+copyright: Copyright © 2026 Alan Sposito and OpenTerm Hub contributors
+directories:
+  output: dist
+  buildResources: resources
+artifactName: ${name}-${version}-${os}-${arch}.${ext}
+# One list for every OS: platform-level "files" would replace it, not extend it.
+files:
+  - out/**
+  - package.json
+  # Optional ssh2 accelerators compiled for this machine's Node, not for Electron/the target OS.
+  # ssh2 loads them inside try/catch and falls back to pure JavaScript.
+  - "!node_modules/ssh2/lib/protocol/crypto/build/**"
+  - "!node_modules/{cpu-features,buildcheck,nan}/**"
+  # Build-time dependencies of the Fig specs; the compiled specs never load them.
+  - "!node_modules/{typescript,yaml,@fig/autocomplete-helpers}/**"
+  # C/C++ sources and headers of the native modules.
+  - "!node_modules/node-pty/{deps,src,third_party,scripts,node-addon-api}/**"
+  - "!node_modules/@serialport/bindings-cpp/src/**"
+  - "!node_modules/node-addon-api/**"
+  # Native modules load from prebuilds/<platform>-<arch> (on Linux, scripts/postinstall.mjs
+  # puts the Electron build of node-pty there); scripts/afterPack.cjs drops other OSes.
+  - "!node_modules/node-pty/{build,bin}/**"
+  - "!node_modules/@serialport/bindings-cpp/{build,bin}/**"
+asarUnpack:
+  - node_modules/node-pty/**
+  - node_modules/@serialport/**
+  - node_modules/@withfig/autocomplete/**
+npmRebuild: false
+afterPack: scripts/afterPack.cjs
+
+linux:
+  target: [deb, AppImage]
+  category: Network
+  maintainer: Alan Sposito
+  executableName: openterm-hub
+  syncDesktopName: true
+deb:
+  depends: [libgtk-3-0, libnss3, libxss1, libxtst6, xdg-utils, libsecret-1-0]
+
+win:
+  target:
+    # x64 only: Windows on ARM runs x64 apps through emulation.
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${name}-${version}-setup-${arch}.${ext}
+portable:
+  artifactName: ${name}-${version}-portable-${arch}.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  category: public.app-category.developer-tools
+  # Ad-hoc signature (required to run on Apple Silicon). Replace with a Developer ID to notarize, see BUILDING.md.
+  identity: "-"
