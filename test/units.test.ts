@@ -187,3 +187,29 @@ test('parent folder works for POSIX and Windows paths', async () => {
   assert.equal(parent('C:\\Users'), 'C:\\')
   assert.equal(parent('C:\\'), 'C:\\')
 })
+
+test('path helpers: join and permission strings', async () => {
+  const { joinPath, modeString } = await import('../src/renderer/src/paths')
+  assert.equal(joinPath('/home/ana', 'x'), '/home/ana/x')
+  assert.equal(joinPath('/', 'x'), '/x')
+  assert.equal(joinPath('C:\\Users\\Ana', 'x'), 'C:\\Users\\Ana\\x')
+  assert.equal(joinPath('C:\\', 'x'), 'C:\\x')
+  assert.equal(modeString(0o40755, true, false), 'drwxr-xr-x')
+  assert.equal(modeString(0o100644, false, false), '-rw-r--r--')
+})
+
+test('unique names for "keep both"', async () => {
+  const { uniqueName } = await import('../src/renderer/src/paths')
+  assert.equal(uniqueName('app.tar.gz', ['app.tar.gz']), 'app (1).tar.gz')
+  assert.equal(uniqueName('notes.txt', ['notes.txt', 'notes (1).txt']), 'notes (2).txt')
+  assert.equal(uniqueName('backups', ['backups']), 'backups (1)')
+  assert.equal(uniqueName('.env', ['.env']), '.env (1)')
+})
+
+test('launching an external program never hangs the caller', async () => {
+  const { launch } = await import('../src/main/sftp')
+  const t0 = Date.now()
+  await launch(new Promise<void>(() => {}), 50)
+  assert.ok(Date.now() - t0 < 1000)
+  await assert.rejects(launch(Promise.reject(new Error('ENOENT')), 50))
+})

@@ -718,7 +718,7 @@ textarea.input {
 
 .frow {
   display: grid;
-  grid-template-columns: 1fr 90px 140px;
+  grid-template-columns: minmax(0, 1fr) 150px 80px 70px;
   gap: 8px;
   padding: 5px 12px;
   cursor: default;
@@ -1045,4 +1045,86 @@ textarea.input {
 
 .link-row:hover {
   color: var(--accent);
+}
+
+.frow:focus {
+  outline: none;
+}
+
+.fname {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fname small {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.fpane-head .title {
+  margin-right: auto;
+}
+
+.fpane-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.fpane-filter .input {
+  height: 26px;
+  width: 140px;
+}
+
+.fpane.dropping .ftable {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.context-menu {
+  z-index: 60;
+  min-width: 210px;
+}
+
+.menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 2px;
+}
+
+.menu button.danger {
+  color: var(--danger);
+}
+
+.menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.perm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.perm-table th,
+.perm-table td {
+  padding: 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.perm-table td:first-child {
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.perm-table input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
 }
