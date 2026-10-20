@@ -12,7 +12,8 @@ const invoke = [
   'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload',
   'localHome', 'localList', 'suggest',
   'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile', 'sftpChmod',
-  'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram', 'listAgentKeys'
+  'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram', 'listAgentKeys',
+  'sftpCopy', 'localCopy'
 ] as const
 
 /** Fire-and-forget calls (hot paths such as keystrokes). */

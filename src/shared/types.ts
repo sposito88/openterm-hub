@@ -163,7 +163,8 @@ export interface FileEntry {
 export interface TransferProgress {
   transferId: string
   name: string
-  direction: 'upload' | 'download'
+  /** copy = between two servers, streamed through this computer without a temp file. */
+  direction: 'upload' | 'download' | 'copy'
   transferred: number
   total: number
   done: boolean
@@ -288,6 +289,10 @@ export interface OpenTermApi {
   /** command: program to open with; omitted = the file association or the system default. */
   sftpOpenFile(sftpId: string, remotePath: string, command?: string): Promise<void>
   sftpChmod(sftpId: string, path: string, mode: number): Promise<void>
+  /** Server to server copy (recursive); returns a transfer id like uploads. */
+  sftpCopy(fromSftpId: string, fromPath: string, toSftpId: string, toDir: string, destName?: string): Promise<string>
+  /** Local to local copy (recursive). */
+  localCopy(fromPath: string, toDir: string, destName?: string): Promise<void>
   localOpen(path: string, command?: string): Promise<void>
   localMkdir(path: string): Promise<void>
   localRename(from: string, to: string): Promise<void>
