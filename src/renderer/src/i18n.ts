@@ -221,7 +221,10 @@ const pt = {
   agentKeysHint: "Chaves carregadas no agente do sistema, incluindo chaves de segurança FIDO2 (YubiKey, SoloKey…), que nunca saem do dispositivo. Para usá-las, marque \"Usar ssh-agent\" no host; ao conectar, toque na chave quando ela piscar.",
   noAgentKeys: "Nenhuma chave no ssh-agent (ou o agente não está rodando).",
   fidoHowTo: "Como criar e usar uma chave FIDO2",
-  fidoHowToHint: "Requer OpenSSH 8.2+ e o servidor com OpenSSH 8.2+. Em chaves com PIN, use -O verify-required; para guardar a chave na YubiKey, -O resident."
+  fidoHowToHint: "Requer OpenSSH 8.2+ e o servidor com OpenSSH 8.2+. Em chaves com PIN, use -O verify-required; para guardar a chave na YubiKey, -O resident.",
+  thisComputer: "Este computador",
+  chooseSource: "Escolher este computador ou outro host do cofre",
+  copyTo: "Copiar para"
 }
 
 type Dict = typeof pt
@@ -448,7 +451,10 @@ const en: Dict = {
   agentKeysHint: "Keys loaded in the system agent, including FIDO2 security keys (YubiKey, SoloKey…), which never leave the device. To use them, tick \"Use ssh-agent\" on the host and touch the key when it blinks while connecting.",
   noAgentKeys: "No keys in ssh-agent (or the agent is not running).",
   fidoHowTo: "How to create and use a FIDO2 key",
-  fidoHowToHint: "Requires OpenSSH 8.2+ locally and on the server. For PIN-protected keys use -O verify-required; to store the key on the YubiKey, -O resident."
+  fidoHowToHint: "Requires OpenSSH 8.2+ locally and on the server. For PIN-protected keys use -O verify-required; to store the key on the YubiKey, -O resident.",
+  thisComputer: "This computer",
+  chooseSource: "Choose this computer or another vault host",
+  copyTo: "Copy to"
 }
 
 const dicts = { pt, en }

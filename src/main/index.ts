@@ -294,6 +294,12 @@ app.whenReady().then(() => {
     localList: (path) => localList(path),
     sftpOpenFile: (id, remotePath, command) => sftp.openFile(id, remotePath, command ?? associatedCommand(remotePath)),
     sftpChmod: (id, path, mode) => sftp.chmod(id, path, mode),
+    sftpCopy: (fromId, fromPath, toId, toDir, destName) => sftp.copy(fromId, fromPath, toId, toDir, destName),
+    localCopy: (fromPath, toDir, destName) => {
+      const name = destName ?? fromPath.split(/[\\/]/).pop()!
+      if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new Error('Nome de destino inválido')
+      return fsp.cp(fromPath, join(toDir, name), { recursive: true, errorOnExist: false, force: true })
+    },
     localOpen: (path, command) => launch(openWith(path, command ?? associatedCommand(path))),
     localMkdir: (path) => fsp.mkdir(path),
     localRename: (from, to) => fsp.rename(from, to),

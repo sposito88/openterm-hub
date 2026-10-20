@@ -32,6 +32,52 @@ export function launch(started: Promise<void>, timeoutMs = 10_000): Promise<void
   return Promise.race([started, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))])
 }
 
+const COPY_CHUNK = 32 * 1024
+const COPY_PARALLEL = 32
+
+/**
+ * Server-to-server file copy with many reads in flight, like fastGet/fastPut:
+ * a stream would wait for each 64 KB round trip and crawl at ~1 MB/s.
+ */
+async function copyFileBetween(
+  src: SFTPWrapper,
+  dst: SFTPWrapper,
+  from: string,
+  to: string,
+  size: number,
+  mode: number,
+  progress: (copied: number) => void
+): Promise<void> {
+  const rh = await p<Buffer>((cb) => src.open(from, 'r', cb))
+  const wh = await p<Buffer>((cb) => dst.open(to, 'w', { mode }, cb))
+  let next = 0
+  let copied = 0
+  const readAt = (buf: Buffer, pos: number, len: number): Promise<number> =>
+    new Promise((resolve, reject) => src.read(rh, buf, 0, len, pos, (err, n) => (err ? reject(err) : resolve(n))))
+  const worker = async (): Promise<void> => {
+    while (next < size) {
+      const pos = next
+      const len = Math.min(COPY_CHUNK, size - pos)
+      next += len
+      const buf = Buffer.allocUnsafe(len)
+      // A server may return fewer bytes than asked: keep reading until the chunk is full.
+      for (let got = 0; got < len; ) {
+        const n = await readAt(buf.subarray(got), pos + got, len - got)
+        if (n <= 0) throw new Error('Leitura interrompida')
+        got += n
+      }
+      await p<void>((cb) => dst.write(wh, buf, 0, len, pos, cb))
+      progress((copied += len))
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: COPY_PARALLEL }, worker))
+  } finally {
+    await p<void>((cb) => src.close(rh, cb)).catch(() => {})
+    await p<void>((cb) => dst.close(wh, cb)).catch(() => {})
+  }
+}
+
 /** A destination name must stay inside the destination folder. */
 function safeName(name: string | undefined): string | undefined {
   if (name === undefined) return undefined
@@ -209,6 +255,39 @@ export class Sftp {
       }
       step.start(total)
       await get(remotePath, join(localDir, name))
+    })
+  }
+
+  /** Copies between two SFTP sessions by streaming one into the other (no temp file). */
+  copy(fromId: string, fromPath: string, toId: string, toDir: string, destName?: string): string {
+    const src = this.conn(fromId).sftp
+    const dst = this.conn(toId).sftp
+    const name = safeName(destName) ?? posix.basename(fromPath)
+    return this.transfer('copy', name, async (step) => {
+      // List the whole source tree before writing anything: if both hosts are the same
+      // machine and the target is inside the source, a live walk would never end.
+      const dirs: string[] = []
+      const files: Array<{ rel: string; size: number; mode: number }> = []
+      const walk = async (rel: string): Promise<void> => {
+        const full = rel ? posix.join(fromPath, rel) : fromPath
+        const st = await p<Stats>((cb) => src.stat(full, cb))
+        if (!st.isDirectory()) return void files.push({ rel, size: st.size, mode: st.mode & 0o777 })
+        dirs.push(rel)
+        const items = await p<FileEntryWithStats[]>((cb) => src.readdir(full, cb))
+        for (const it of items) await walk(rel ? posix.join(rel, it.filename) : it.filename)
+      }
+      await walk('')
+      step.start(files.reduce((sum, f) => sum + f.size, 0))
+      const target = posix.join(toDir, name)
+      for (const rel of dirs) {
+        await p<void>((cb) => dst.mkdir(rel ? posix.join(target, rel) : target, cb)).catch(() => {})
+      }
+      for (const f of files) {
+        const from = f.rel ? posix.join(fromPath, f.rel) : fromPath
+        const to = f.rel ? posix.join(target, f.rel) : target
+        await copyFileBetween(src, dst, from, to, f.size, f.mode, step.file)
+        step.commit(f.size)
+      }
     })
   }
 

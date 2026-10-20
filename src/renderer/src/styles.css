@@ -1137,3 +1137,40 @@ textarea.input {
   white-space: pre-wrap;
   font-size: 12px;
 }
+
+.source-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  background: none;
+  font-weight: 600;
+  padding: 4px 8px;
+  margin-left: -8px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.source-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.source-picker {
+  z-index: 60;
+  min-width: 260px;
+}
+
+.source-picker button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-group {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 4px 10px 2px;
+}
