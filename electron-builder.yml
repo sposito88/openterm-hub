@@ -32,6 +32,8 @@ afterPack: scripts/afterPack.cjs
 
 linux:
   target: [deb, AppImage]
+  # One PNG per size: GNOME/KDE only look up sizes the hicolor theme declares (up to 512).
+  icon: resources/icons
   category: Network
   maintainer: Alan Sposito
   executableName: openterm-hub

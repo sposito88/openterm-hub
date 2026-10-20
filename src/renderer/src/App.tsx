@@ -107,11 +107,25 @@ function runAction(action: ShortcutAction): boolean {
   return false
 }
 
-function SftpPicker({ onClose }: { onClose(): void }) {
+/**
+ * Host chooser for the SFTP button. It is positioned fixed below the button: the tab bar
+ * scrolls horizontally (overflow), which would clip an absolutely positioned menu.
+ */
+function SftpPicker({ anchor, onClose }: { anchor: DOMRect; onClose(): void }) {
   const t = useT()
   const hosts = useApp((s) => s.snapshot!.hosts).filter((h) => h.protocol === 'ssh')
+  useEffect(() => {
+    const close = (e: MouseEvent): void => {
+      if (!(e.target as Element).closest('.sftp-picker')) onClose()
+    }
+    const id = setTimeout(() => window.addEventListener('mousedown', close))
+    return () => {
+      clearTimeout(id)
+      window.removeEventListener('mousedown', close)
+    }
+  }, [])
   return (
-    <div className="menu" style={{ left: 0, top: 36 }} onMouseLeave={onClose}>
+    <div className="menu sftp-picker" style={{ position: 'fixed', left: anchor.left, top: anchor.bottom + 4 }}>
       <div className="dim" style={{ padding: '4px 10px', fontSize: 11 }}>
         {hosts.length ? t('chooseHost') : t('noSshHosts')}
       </div>
@@ -135,7 +149,7 @@ export function App() {
   const snapshot = useApp((s) => s.snapshot)
   const uiLight = useUiLight()
   const { view, tabs, activeTab, toasts, setView, activate, closeTab } = useApp()
-  const [sftpPicker, setSftpPicker] = useState(false)
+  const [sftpPicker, setSftpPicker] = useState<DOMRect | null>(null)
 
   useEffect(() => {
     void useApp.getState().refresh()
@@ -183,13 +197,15 @@ export function App() {
           <Icon name="server" />
           <span>{t('vault')}</span>
         </button>
-        <div style={{ position: 'relative', display: 'flex' }}>
-          <button className="tab" onClick={() => setSftpPicker(!sftpPicker)} title={translate('chooseHost')}>
-            <Icon name="folder" />
-            <span>SFTP</span>
-          </button>
-          {sftpPicker && <SftpPicker onClose={() => setSftpPicker(false)} />}
-        </div>
+        <button
+          className="tab"
+          onClick={(e) => setSftpPicker(sftpPicker ? null : e.currentTarget.getBoundingClientRect())}
+          title={translate('chooseHost')}
+        >
+          <Icon name="folder" />
+          <span>SFTP</span>
+        </button>
+        {sftpPicker && <SftpPicker anchor={sftpPicker} onClose={() => setSftpPicker(null)} />}
         {tabs.map((tab) => (
           <div
             key={tab.id}
