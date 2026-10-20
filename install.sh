@@ -50,7 +50,7 @@ TAG=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$TMP/release.json" | head -n
 VERSION=${TAG#v}
 
 asset_url() { # first asset whose name matches the given grep pattern
-  sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p' "$TMP/release.json" | grep -E "$1" | head -n 1
+  sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p' "$TMP/release.json" | grep -E -e "$1" | head -n 1
 }
 
 # --- which file for this machine ---------------------------------------------
@@ -87,7 +87,7 @@ say "OpenTerm Hub $VERSION ($FILE)"
 fetch "$URL" "$TMP/$FILE"
 fetch "$SUMS_URL" "$TMP/SHA256SUMS.txt"
 
-EXPECTED=$(grep " $FILE\$" "$TMP/SHA256SUMS.txt" | cut -d' ' -f1 | head -n 1)
+EXPECTED=$(grep -e " $FILE\$" "$TMP/SHA256SUMS.txt" | cut -d' ' -f1 | head -n 1)
 [ -n "$EXPECTED" ] || die "$FILE não está no SHA256SUMS.txt"
 ACTUAL=$(sha256 "$TMP/$FILE")
 [ "$EXPECTED" = "$ACTUAL" ] || die "SHA-256 não confere para $FILE (esperado $EXPECTED, obtido $ACTUAL)"
