@@ -12,7 +12,7 @@ const invoke = [
   'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload',
   'localHome', 'localList', 'suggest',
   'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile', 'sftpChmod',
-  'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram'
+  'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram', 'listAgentKeys'
 ] as const
 
 /** Fire-and-forget calls (hot paths such as keystrokes). */
@@ -35,6 +35,7 @@ const api: Record<string, unknown> = {
   onHostKeyPrompt: on('prompt:hostKey'),
   onCredentialPrompt: on('prompt:credential'),
   onPromptCancel: on('prompt:cancel'),
+  onNotice: on('notice'),
   onTransferProgress: on('sftp:progress'),
   onForwardStatus: on('forward:status'),
   onSnapshotChanged: on('snapshot:changed'),

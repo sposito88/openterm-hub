@@ -1128,3 +1128,12 @@ textarea.input {
   width: 16px;
   height: 16px;
 }
+
+.fido-howto {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  font-size: 12px;
+}

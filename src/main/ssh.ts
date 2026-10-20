@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Duplex } from 'node:stream'
-import { Client, type AuthenticationType, type AuthHandlerMiddleware, type ConnectConfig } from 'ssh2'
-import type { Host } from '@shared/types'
+import { Client, OpenSSHAgent, type AuthenticationType, type AuthHandlerMiddleware, type ConnectConfig, type ParsedKey } from 'ssh2'
+import type { AgentKey, Host } from '@shared/types'
 import type { Prompts } from './prompts'
 import type { Store } from './store'
 
@@ -31,6 +31,25 @@ export function hostKeyInfo(key: Buffer): { keyType: string; fingerprint: string
   const keyType = key.subarray(4, 4 + len).toString('latin1')
   const fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
   return { keyType, fingerprint }
+}
+
+/** Keys held by the system ssh-agent (FIDO2 sk-* keys included, see patches/ssh2). */
+export function listAgentKeys(path = agentPath()): Promise<AgentKey[]> {
+  if (!path) return Promise.resolve([])
+  return new Promise((resolve) => {
+    new OpenSSHAgent(path).getIdentities((err, keys) => {
+      if (err || !keys) return resolve([])
+      // OpenSSHAgent always yields parsed keys (the typings also allow raw entries).
+      resolve(
+        (keys as ParsedKey[]).map((k) => ({
+          type: k.type,
+          comment: k.comment,
+          fingerprint: 'SHA256:' + createHash('sha256').update(k.getPublicSSH()).digest('base64').replace(/=+$/, ''),
+          securityKey: k.type.startsWith('sk-')
+        }))
+      )
+    })
+  })
 }
 
 async function verifyHostKey(deps: SshDeps, host: Host, key: Buffer, hs: Handshake): Promise<boolean> {
@@ -65,7 +84,16 @@ function authHandler(deps: SshDeps, host: Host, hs: Handshake): AuthHandlerMiddl
 
   const agent = agentPath()
   if (host.useAgent && agent) {
-    queue.push({ type: 'agent', make: async () => ({ type: 'agent', username, agent }) })
+    queue.push({
+      type: 'agent',
+      make: async () => {
+        // A FIDO2 key blinks and waits for a touch: tell the user why the login pauses.
+        if ((await listAgentKeys(agent)).some((k) => k.securityKey)) {
+          deps.prompts.notice(`${title}: toque na sua chave de segurança se ela piscar / touch your security key if it blinks`)
+        }
+        return { type: 'agent', username, agent }
+      }
+    })
   }
   if (host.keyId) {
     const keyId = host.keyId

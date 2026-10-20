@@ -1,6 +1,6 @@
 {
   "name": "openterm-hub",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Open source desktop SSH client: hosts, terminal tabs, SFTP, port forwarding, keys, snippets and autocomplete.",
   "keywords": [
     "ssh",
@@ -54,6 +54,7 @@
     "electron": "43.7.7",
     "electron-builder": "26.17.0",
     "electron-vite": "5.0.0",
+    "patch-package": "8.0.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tsx": "4.23.15",

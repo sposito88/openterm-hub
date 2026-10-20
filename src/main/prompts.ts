@@ -41,6 +41,11 @@ export class Prompts {
     return this.ask<string[] | null>('prompt:credential', p, null, signal)
   }
 
+  /** Information that needs no answer. */
+  notice(text: string): void {
+    this.send('notice', text)
+  }
+
   answer(promptId: string, value: unknown): void {
     const resolve = this.pending.get(promptId)
     if (!resolve) return
