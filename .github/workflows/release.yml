@@ -52,9 +52,13 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Checksums
+        # install.sh / install.ps1 refuse any download that does not match this file.
+        run: |
+          mkdir -p release
+          find dist -type f -exec mv {} release/ \;
+          cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          find dist -type f -print
-          find dist -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "OpenTerm Hub $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "OpenTerm Hub $GITHUB_REF_NAME" --generate-notes
