@@ -224,7 +224,11 @@ const pt = {
   fidoHowToHint: "Requer OpenSSH 8.2+ e o servidor com OpenSSH 8.2+. Em chaves com PIN, use -O verify-required; para guardar a chave na YubiKey, -O resident.",
   thisComputer: "Este computador",
   chooseSource: "Escolher este computador ou outro host do cofre",
-  copyTo: "Copiar para"
+  copyTo: "Copiar para",
+  noFilterMatch: "Nenhum item corresponde a \"{q}\".",
+  clearFilter: "Limpar filtro",
+  emptyFolder: "Pasta vazia.",
+  searchHosts: "Buscar host…"
 }
 
 type Dict = typeof pt
@@ -454,7 +458,11 @@ const en: Dict = {
   fidoHowToHint: "Requires OpenSSH 8.2+ locally and on the server. For PIN-protected keys use -O verify-required; to store the key on the YubiKey, -O resident.",
   thisComputer: "This computer",
   chooseSource: "Choose this computer or another vault host",
-  copyTo: "Copy to"
+  copyTo: "Copy to",
+  noFilterMatch: "No item matches \"{q}\".",
+  clearFilter: "Clear filter",
+  emptyFolder: "Empty folder.",
+  searchHosts: "Search hosts…"
 }
 
 const dicts = { pt, en }
