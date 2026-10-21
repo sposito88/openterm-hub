@@ -277,7 +277,9 @@ const pt = {
   back: "Voltar",
   forward: "Avançar",
   editPath: "Clique para digitar um caminho",
-  newSftpTab: "Nova aba de SFTP"
+  newSftpTab: "Nova aba de SFTP",
+  selectAll: "Selecionar tudo",
+  confirmDeleteMany: "Excluir estes {n} itens?"
 }
 
 type Dict = typeof pt
@@ -560,7 +562,9 @@ const en: Dict = {
   back: "Back",
   forward: "Forward",
   editPath: "Click to type a path",
-  newSftpTab: "New SFTP tab"
+  newSftpTab: "New SFTP tab",
+  selectAll: "Select all",
+  confirmDeleteMany: "Delete these {n} items?"
 }
 
 const dicts = { pt, en }

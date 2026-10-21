@@ -1047,6 +1047,7 @@ textarea.input {
   color: var(--accent);
 }
 
+.ftable:focus,
 .frow:focus {
   outline: none;
 }

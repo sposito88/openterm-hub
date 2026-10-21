@@ -248,3 +248,40 @@ test('workspace layout and pane structure', async () => {
   assert.equal(ws.panes[0].title, 'Web 01')
   assert.equal(ws.panes[1].title, 'DB 01')
 })
+
+test('SFTP multi-select: normal click, Ctrl/Cmd toggle, Shift range, and context/drag preservation', async () => {
+  const { selectItems, selectForAction } = await import('../src/renderer/src/paths')
+  const shown = ['/a', '/b', '/c', '/d', '/e']
+
+  // Normal click selects single item and sets anchor
+  let s = selectItems(shown, [], null, '/b')
+  assert.deepEqual(s, { selected: ['/b'], lastClicked: '/b' })
+
+  // Shift click selects inclusive range from lastClicked (/b -> /d)
+  s = selectItems(shown, s.selected, s.lastClicked, '/d', { shiftKey: true })
+  assert.deepEqual(s, { selected: ['/b', '/c', '/d'], lastClicked: '/d' })
+
+  // Shift click upwards (/d -> /a)
+  s = selectItems(shown, s.selected, s.lastClicked, '/a', { shiftKey: true })
+  assert.deepEqual(s, { selected: ['/a', '/b', '/c', '/d'], lastClicked: '/a' })
+
+  // Ctrl click toggles item off when already selected
+  s = selectItems(shown, s.selected, s.lastClicked, '/c', { ctrlKey: true })
+  assert.deepEqual(s, { selected: ['/a', '/b', '/d'], lastClicked: '/c' })
+
+  // Cmd (metaKey) click toggles item on
+  s = selectItems(shown, s.selected, s.lastClicked, '/e', { metaKey: true })
+  assert.deepEqual(s, { selected: ['/a', '/b', '/d', '/e'], lastClicked: '/e' })
+
+  // Right-click / drag on an already-selected item preserves multi-selection
+  assert.deepEqual(selectForAction(s.selected, s.lastClicked, '/b'), {
+    selected: ['/a', '/b', '/d', '/e'],
+    lastClicked: '/e'
+  })
+
+  // Right-click / drag on an unselected item selects only that item
+  assert.deepEqual(selectForAction(s.selected, s.lastClicked, '/c'), {
+    selected: ['/c'],
+    lastClicked: '/c'
+  })
+})

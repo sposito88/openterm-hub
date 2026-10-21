@@ -29,7 +29,7 @@ O script baixa a versão mais recente para o seu sistema e **confere o SHA-256**
 - **macOS:** coloca o app em `/Applications`.
 - **Windows:** abre o instalador.
 
-Prefere ler antes de rodar? Baixe o [install.sh](install.sh) ou o [install.ps1](install.ps1), confira e execute. Opções: `OPENTERM_VERSION=v0.3.1` (versão específica), `OPENTERM_APPIMAGE=1` (forçar o AppImage) e `OPENTERM_DRY_RUN=1` (só baixar e verificar).
+Prefere ler antes de rodar? Baixe o [install.sh](install.sh) ou o [install.ps1](install.ps1), confira e execute. Opções: `OPENTERM_VERSION=v0.3.2` (versão específica), `OPENTERM_APPIMAGE=1` (forçar o AppImage) e `OPENTERM_DRY_RUN=1` (só baixar e verificar).
 
 ### Download manual
 

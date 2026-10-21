@@ -25,7 +25,7 @@ async function freePort(): Promise<number> {
   s.listen(0, '127.0.0.1')
   await once(s, 'listening')
   const port = (s.address() as AddressInfo).port
-  s.close()
+  await new Promise((r) => s.close(r))
   return port
 }
 

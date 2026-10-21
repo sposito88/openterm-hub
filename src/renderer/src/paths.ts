@@ -56,3 +56,54 @@ export function crumbs(path: string, keep = 4): Crumb[] {
   const hidden = out[out.length - keep - 1]
   return [out[0], { label: '…', path: hidden.path }, ...out.slice(-keep)]
 }
+
+export interface SelectModifiers {
+  ctrlKey?: boolean
+  metaKey?: boolean
+  shiftKey?: boolean
+}
+
+/**
+ * Multi-selection logic for SFTP file rows (Ctrl/Cmd toggle, Shift range, normal click).
+ * Mirrors Termius ConnectedSFTP (`singleSelect`, `rangeSelect`, `normalSelect`).
+ */
+export function selectItems(
+  shownPaths: readonly string[],
+  selected: readonly string[],
+  lastClicked: string | null,
+  targetPath: string,
+  mods: SelectModifiers = {}
+): { selected: string[]; lastClicked: string } {
+  if (mods.ctrlKey || mods.metaKey) {
+    const next = selected.includes(targetPath)
+      ? selected.filter((p) => p !== targetPath)
+      : [...selected, targetPath]
+    return { selected: next, lastClicked: targetPath }
+  }
+  if (mods.shiftKey) {
+    const targetIdx = shownPaths.indexOf(targetPath)
+    if (targetIdx === -1) return { selected: [targetPath], lastClicked: targetPath }
+    const lastIdx = lastClicked ? shownPaths.indexOf(lastClicked) : 0
+    const anchorIdx = lastIdx === -1 ? 0 : lastIdx
+    const start = Math.min(anchorIdx, targetIdx)
+    const end = Math.max(anchorIdx, targetIdx) + 1
+    return { selected: shownPaths.slice(start, end), lastClicked: targetPath }
+  }
+  return { selected: [targetPath], lastClicked: targetPath }
+}
+
+/**
+ * Preserves multi-selection when right-clicking or dragging an already-selected item;
+ * otherwise selects only the target item.
+ */
+export function selectForAction(
+  selected: readonly string[],
+  lastClicked: string | null,
+  targetPath: string
+): { selected: string[]; lastClicked: string | null } {
+  if (selected.includes(targetPath)) {
+    return { selected: [...selected], lastClicked }
+  }
+  return { selected: [targetPath], lastClicked: targetPath }
+}
+

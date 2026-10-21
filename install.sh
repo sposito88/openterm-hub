@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.sh | sh
 #
 # Options (environment variables):
-#   OPENTERM_VERSION=v0.3.1   install a specific release instead of the latest
+#   OPENTERM_VERSION=v0.3.2   install a specific release instead of the latest
 #   OPENTERM_APPIMAGE=1       Linux: install the AppImage (no sudo) even where .deb works
 #   OPENTERM_DRY_RUN=1        download and verify only, install nothing
 #

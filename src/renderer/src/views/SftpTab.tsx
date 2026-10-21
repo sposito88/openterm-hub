@@ -4,7 +4,7 @@ import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { formatBytes, Modal } from '../components/ui'
 import { useT, type TKey } from '../i18n'
-import { crumbs, joinPath, modeString, parent, uniqueName } from '../paths'
+import { crumbs, joinPath, modeString, parent, selectForAction, selectItems, uniqueName } from '../paths'
 import { attempt, useApp, type Tab } from '../state'
 
 type Side = 'left' | 'right'
@@ -16,12 +16,13 @@ interface PaneState {
   source: Source | null
   path: string
   entries: FileEntry[]
-  sel: FileEntry | null
+  selected: string[]
+  lastClicked: string | null
   error?: string
   connecting?: string
 }
 
-const EMPTY: PaneState = { source: null, path: '', entries: [], sel: null }
+const EMPTY: PaneState = { source: null, path: '', entries: [], selected: [], lastClicked: null }
 const other = (side: Side): Side => (side === 'left' ? 'right' : 'left')
 
 /** What each pane can do; the local and remote sides implement it differently. */
@@ -30,7 +31,7 @@ interface PaneOps {
   open(e: FileEntry, command?: string): Promise<void>
   mkdir(path: string): Promise<void>
   rename(from: string, to: string): Promise<void>
-  remove(e: FileEntry): Promise<void>
+  remove(items: FileEntry[]): Promise<void>
   chmod(path: string, mode: number): Promise<void>
 }
 
@@ -38,7 +39,9 @@ interface MenuState {
   x: number
   y: number
   side: Side
-  entry: FileEntry | null
+  entries: FileEntry[]
+  canSelectAll: boolean
+  onSelectAll(): void
 }
 
 type Dialog =
@@ -206,7 +209,7 @@ function ContextMenu(props: {
   ops: PaneOps
   otherName: string
   onNavigate(path: string): void
-  onCopy(e: FileEntry): void
+  onCopy(items: FileEntry[]): void
   onDialog(d: Dialog): void
   onClose(): void
 }) {
@@ -214,7 +217,9 @@ function ContextMenu(props: {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: menu.x, top: menu.y })
-  const e = menu.entry
+  const selected = menu.entries
+  const single = selected.length === 1 ? selected[0] : null
+  const hasSelection = selected.length > 0
 
   useEffect(() => {
     // Keep the menu inside the window.
@@ -250,19 +255,29 @@ function ContextMenu(props: {
 
   return (
     <div ref={ref} className="menu context-menu" style={{ position: 'fixed', ...pos }}>
-      {e && (
+      {hasSelection && (
         <>
-          {item(e.isDir ? t('open') : t('openFile'), () => (e.isDir ? props.onNavigate(e.path) : void attempt(() => ops.open(e))))}
-          {!e.isDir && item(t('openWith') + '…', () => onDialog({ kind: 'openWith', entry: e, side: menu.side }))}
-          {item(`${t('copyTo')} ${props.otherName}`, () => props.onCopy(e))}
+          {single && item(single.isDir ? t('open') : t('openFile'), () => (single.isDir ? props.onNavigate(single.path) : void attempt(() => ops.open(single))))}
+          {single && !single.isDir && item(t('openWith') + '…', () => onDialog({ kind: 'openWith', entry: single, side: menu.side }))}
+          {item(`${t('copyTo')} ${props.otherName}`, () => props.onCopy(selected))}
           <hr />
-          {item(t('rename'), () =>
-            onDialog({ kind: 'input', side: menu.side, title: t('newName'), initial: e.name, done: (name) => ops.rename(e.path, joinPath(parent(e.path), name)) })
-          )}
+          {single &&
+            item(t('rename'), () =>
+              onDialog({
+                kind: 'input',
+                side: menu.side,
+                title: t('newName'),
+                initial: single.name,
+                done: (name) => ops.rename(single.path, joinPath(parent(single.path), name))
+              })
+            )}
           {item(
             t('delete'),
             async () => {
-              if (confirm(`${t('confirmDelete')}\n${e.path}`)) await attempt(() => ops.remove(e))
+              const promptText = single
+                ? `${t('confirmDelete')}\n${single.path}`
+                : `${t('confirmDeleteMany').replace('{n}', String(selected.length))}\n${selected.map((x) => x.name).join('\n')}`
+              if (confirm(promptText)) await attempt(() => ops.remove(selected))
             },
             { danger: true }
           )}
@@ -271,7 +286,8 @@ function ContextMenu(props: {
       )}
       {item(t('refresh'), () => void ops.list(''))}
       {item(t('newFolder'), () => onDialog({ kind: 'input', side: menu.side, title: t('folderName'), initial: '', done: (name) => ops.mkdir(name) }))}
-      {e && item(t('editPermissions'), () => onDialog({ kind: 'chmod', entry: e, side: menu.side }))}
+      {single && item(t('editPermissions'), () => onDialog({ kind: 'chmod', entry: single, side: menu.side }))}
+      {item(t('selectAll'), () => menu.onSelectAll(), { disabled: !menu.canSelectAll })}
     </div>
   )
 }
@@ -339,11 +355,12 @@ function FilePane(props: {
   canForward: boolean
   onBack(): void
   onForward(): void
-  onSelect(e: FileEntry): void
+  onSelectionChange(selected: string[], lastClicked: string | null): void
   onOpen(e: FileEntry): void
+  onDelete(items: FileEntry[]): void
   onMenu(m: MenuState): void
-  /** A row from the other pane was dropped here. */
-  onDropFromOther(path: string): void
+  /** Rows from the other pane were dropped here. */
+  onDropFromOther(paths: string[]): void
   /** Files dragged in from the OS file manager (local paths). */
   onDropFiles(paths: string[]): void
 }) {
@@ -361,13 +378,35 @@ function FilePane(props: {
 
   const q = filter.trim().toLowerCase()
   const entries = state.entries.filter((e) => (showHidden || !e.name.startsWith('.')) && (!q || e.name.toLowerCase().includes(q)))
+  const shownPaths = entries.map((e) => e.path)
+  const selectedSet = new Set(state.selected)
+  const selectedEntries = entries.filter((e) => selectedSet.has(e.path))
   const atRoot = parent(state.path) === state.path
+
+  const selectAll = (): void => {
+    props.onSelectionChange(shownPaths, state.lastClicked)
+  }
 
   const openMenu = (ev: React.MouseEvent, entry: FileEntry | null): void => {
     ev.preventDefault()
     ev.stopPropagation()
-    if (entry) props.onSelect(entry)
-    props.onMenu({ x: ev.clientX, y: ev.clientY, side: props.side, entry })
+    let activePaths = state.selected
+    if (entry) {
+      const next = selectForAction(state.selected, state.lastClicked, entry.path)
+      activePaths = next.selected
+      if (!selectedSet.has(entry.path)) {
+        props.onSelectionChange(next.selected, next.lastClicked)
+      }
+    }
+    const activeSet = new Set(activePaths)
+    props.onMenu({
+      x: ev.clientX,
+      y: ev.clientY,
+      side: props.side,
+      entries: entry ? entries.filter((e) => activeSet.has(e.path)) : [],
+      canSelectAll: entries.length > 0,
+      onSelectAll: selectAll
+    })
   }
 
   return (
@@ -388,8 +427,17 @@ function FilePane(props: {
       onDrop={(ev) => {
         ev.preventDefault()
         setDropping(false)
-        const path = ev.dataTransfer.getData(`openterm/${other(props.side)}`)
-        if (path) return props.onDropFromOther(path)
+        const raw = ev.dataTransfer.getData(`openterm/${other(props.side)}`)
+        if (raw) {
+          let paths: string[]
+          try {
+            const parsed = JSON.parse(raw)
+            paths = Array.isArray(parsed) ? parsed : [raw]
+          } catch {
+            paths = [raw]
+          }
+          return props.onDropFromOther(paths)
+        }
         const files = [...ev.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean)
         if (files.length) props.onDropFiles(files)
       }}
@@ -401,13 +449,28 @@ function FilePane(props: {
         </button>
         <div className="fpane-filter">
           <Icon name="search" size={14} />
-          <input className="input" placeholder={t('filter')} value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input
+            className="input"
+            placeholder={t('filter')}
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value)
+              props.onSelectionChange([], null)
+            }}
+          />
         </div>
         <button
           className="btn small"
           onClick={(ev) => {
             const r = ev.currentTarget.getBoundingClientRect()
-            props.onMenu({ x: r.left, y: r.bottom + 4, side: props.side, entry: state.sel })
+            props.onMenu({
+              x: r.left,
+              y: r.bottom + 4,
+              side: props.side,
+              entries: selectedEntries,
+              canSelectAll: entries.length > 0,
+              onSelectAll: selectAll
+            })
           }}
         >
           {t('actions')} ▾
@@ -468,8 +531,24 @@ function FilePane(props: {
           </div>
         )}
       </div>
-      <div className="ftable" onContextMenu={(ev) => openMenu(ev, null)}>
-        <div className="frow head">
+      <div
+        className="ftable"
+        tabIndex={0}
+        onClick={() => props.onSelectionChange([], null)}
+        onContextMenu={(ev) => openMenu(ev, null)}
+        onKeyDown={(ev) => {
+          if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'a') {
+            ev.preventDefault()
+            selectAll()
+          } else if (ev.key === 'Escape') {
+            props.onSelectionChange([], null)
+          } else if (ev.key === 'Delete' && selectedEntries.length > 0) {
+            ev.preventDefault()
+            props.onDelete(selectedEntries)
+          }
+        }}
+      >
+        <div className="frow head" onClick={(ev) => ev.stopPropagation()}>
           <span>{t('name')}</span>
           <span className="num">{t('modified')}</span>
           <span className="num">{t('size')}</span>
@@ -501,17 +580,33 @@ function FilePane(props: {
         {entries.map((e) => (
           <div
             key={e.path}
-            className={`frow ${state.sel?.path === e.path ? 'sel' : ''}`}
+            className={`frow ${selectedSet.has(e.path) ? 'sel' : ''}`}
             draggable
             onDragStart={(ev) => {
-              ev.dataTransfer.setData(`openterm/${props.side}`, e.path)
-              props.onSelect(e)
+              const next = selectForAction(state.selected, state.lastClicked, e.path)
+              if (!selectedSet.has(e.path)) {
+                props.onSelectionChange(next.selected, next.lastClicked)
+              }
+              const dragSet = new Set(next.selected)
+              const dragPaths = entries.filter((x) => dragSet.has(x.path)).map((x) => x.path)
+              ev.dataTransfer.setData(`openterm/${props.side}`, JSON.stringify(dragPaths.length ? dragPaths : [e.path]))
             }}
-            onClick={() => props.onSelect(e)}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              const next = selectItems(shownPaths, state.selected, state.lastClicked, e.path, {
+                ctrlKey: ev.ctrlKey,
+                metaKey: ev.metaKey,
+                shiftKey: ev.shiftKey
+              })
+              props.onSelectionChange(next.selected, next.lastClicked)
+            }}
             onDoubleClick={() => (e.isDir ? props.onNavigate(e.path) : props.onOpen(e))}
             onContextMenu={(ev) => openMenu(ev, e)}
             onKeyDown={(ev) => {
-              if (ev.key === 'Enter') e.isDir ? props.onNavigate(e.path) : props.onOpen(e)
+              if (ev.key === 'Enter' && selectedEntries.length <= 1) {
+                ev.stopPropagation()
+                e.isDir ? props.onNavigate(e.path) : props.onOpen(e)
+              }
             }}
             tabIndex={0}
           >
@@ -562,7 +657,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
     const target = path || panesRef.current[side].path
     try {
       const entries = source.kind === 'local' ? await api.localList(target) : await api.sftpList(source.sftpId, target)
-      patch(side, { source, path: target, entries, sel: null, error: undefined, connecting: undefined })
+      patch(side, { source, path: target, entries, selected: [], lastClicked: null, error: undefined, connecting: undefined })
     } catch (err) {
       patch(side, { error: errorMessage(err), connecting: undefined })
     }
@@ -614,7 +709,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
     }
     const host = hosts.find((h) => h.id === hostId)
     if (!host) return
-    patch(side, { connecting: host.label, error: undefined, entries: [] })
+    patch(side, { connecting: host.label, error: undefined, entries: [], selected: [], lastClicked: null })
     try {
       const { sftpId, home } = await api.sftpOpen(hostId)
       if (closed.current) return api.sftpClose(sftpId)
@@ -667,8 +762,8 @@ export function SftpTab({ tab }: { tab: Tab }) {
           await api.sftpRename(id, from, to)
           await refresh()
         },
-        remove: async (e) => {
-          await api.sftpDelete(id, e.path)
+        remove: async (items) => {
+          await Promise.all(items.map((e) => api.sftpDelete(id, e.path)))
           await refresh()
         },
         chmod: async (path, mode) => {
@@ -690,9 +785,11 @@ export function SftpTab({ tab }: { tab: Tab }) {
         await api.localRename(from, to)
         await refresh()
       },
-      remove: async (e) => {
-        await api.localDelete(e.path)
-        toast(`${e.name}: ${t('movedToTrash')}`)
+      remove: async (items) => {
+        for (const e of items) {
+          await api.localDelete(e.path)
+          toast(`${e.name}: ${t('movedToTrash')}`)
+        }
         await refresh()
       },
       chmod: async (path, mode) => {
@@ -726,9 +823,12 @@ export function SftpTab({ tab }: { tab: Tab }) {
     })
   }
 
-  const copy = (side: Side, e: FileEntry): void => {
+  const copyMany = async (side: Side, items: FileEntry[]): Promise<void> => {
     const source = panesRef.current[side].source
-    if (source) void copyInto(source, e, other(side))
+    if (!source) return
+    for (const item of items) {
+      await copyInto(source, item, other(side))
+    }
   }
 
   /** Files dropped from the OS file manager. */
@@ -763,12 +863,20 @@ export function SftpTab({ tab }: { tab: Tab }) {
             canForward={history.current[side].forward.length > 0}
             onBack={() => step(side, 'back')}
             onForward={() => step(side, 'forward')}
-            onSelect={(e) => patch(side, { sel: e })}
+            onSelectionChange={(selected, lastClicked) => patch(side, { selected, lastClicked })}
             onOpen={(e) => void attempt(() => opsFor(side).open(e))}
+            onDelete={async (items) => {
+              const promptText =
+                items.length === 1
+                  ? `${t('confirmDelete')}\n${items[0].path}`
+                  : `${t('confirmDeleteMany').replace('{n}', String(items.length))}\n${items.map((x) => x.name).join('\n')}`
+              if (confirm(promptText)) await attempt(() => opsFor(side).remove(items))
+            }}
             onMenu={setMenu}
-            onDropFromOther={(path) => {
-              const e = panesRef.current[other(side)].entries.find((x) => x.path === path)
-              if (e) copy(other(side), e)
+            onDropFromOther={(paths) => {
+              const pathSet = new Set(paths)
+              const items = panesRef.current[other(side)].entries.filter((x) => pathSet.has(x.path))
+              if (items.length) void copyMany(other(side), items)
             }}
             onDropFiles={(files) => void dropFiles(side, files)}
           />
@@ -806,7 +914,7 @@ export function SftpTab({ tab }: { tab: Tab }) {
           ops={opsFor(menu.side)}
           otherName={titleOf(other(menu.side))}
           onNavigate={(path) => navigate(menu.side, path)}
-          onCopy={(e) => copy(menu.side, e)}
+          onCopy={(items) => void copyMany(menu.side, items)}
           onDialog={setDialog}
           onClose={() => setMenu(null)}
         />
