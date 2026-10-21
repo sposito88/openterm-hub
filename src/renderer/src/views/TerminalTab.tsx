@@ -50,6 +50,39 @@ function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
   }
 }
 
+interface TerminalUiBridge {
+  hostEl: HTMLDivElement | null
+  wrapEl: HTMLDivElement | null
+  popup: Popup | null
+  setPopup(p: Popup | null): void
+  setSearching(v: boolean): void
+  broadcastActive?: boolean
+  onBroadcastWrite?: (data: string) => void
+  onSessionReady?: (paneId: string, sessionId: string) => void
+  onSessionClosed?: (paneId: string) => void
+}
+
+interface RetainedTerminal {
+  sKey: string
+  container: HTMLDivElement
+  term: Terminal
+  fit: FitAddon
+  search: SearchAddon
+  ui: TerminalUiBridge
+  accept(s: Suggestion): void
+  paste(): void
+  getSessionId(): string | null
+  disposeTimer?: ReturnType<typeof setTimeout>
+  dispose(): void
+}
+
+/**
+ * Live terminal instances indexed by `sKey` (`paneId || tab.id`). When a tab is
+ * split or merged into a workspace, the old `<TerminalTab>` unmounts and the new
+ * pane `<TerminalTab>` mounts with the same `sKey` in the same commit; retaining
+ * the instance preserves the active SSH/local session, buffer, and WebGL canvas.
+ */
+const retainedTerminals = new Map<string, RetainedTerminal>()
 const liveTerminals = new Set<Terminal>()
 
 function refreshTerminalRender(term: Terminal | null): void {
@@ -161,211 +194,323 @@ export function TerminalTab(props: TerminalTabProps) {
 
   const setPopup = (p: Popup | null): void => {
     popupRef.current = p
+    const entry = retainedTerminals.get(paneId || tab.id)
+    if (entry) entry.ui.popup = p
     setPopupState(p)
   }
 
+  const sKey = paneId || tab.id
+  const currentEntry = retainedTerminals.get(sKey)
+  if (currentEntry) {
+    currentEntry.ui.broadcastActive = broadcastActive
+    currentEntry.ui.onBroadcastWrite = onBroadcastWrite
+    currentEntry.ui.onSessionReady = onSessionReady
+    currentEntry.ui.onSessionClosed = onSessionClosed
+  }
+
   useEffect(() => {
-    const term = new Terminal({ ...termOptions(settingsRef.current, uiLight), allowProposedApi: true, macOptionIsMeta: true })
-    liveTerminals.add(term)
-    const fit = new FitAddon()
-    const search = new SearchAddon()
-    term.loadAddon(fit)
-    term.loadAddon(search)
-    term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)))
-    term.open(hostEl.current!)
-    // WebGL draws box-drawing and block characters itself, pixel exact, so ASCII art
-    // and TUIs line up whatever font is used. Falls back to the DOM renderer.
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      term.loadAddon(webgl)
-    } catch {
-      // No WebGL (e.g. GPU blocklisted): the DOM renderer keeps working.
+    let entry = retainedTerminals.get(sKey)
+    if (entry) {
+      clearTimeout(entry.disposeTimer)
+      entry.disposeTimer = undefined
+      if (entry.container.parentElement !== hostEl.current) {
+        hostEl.current!.appendChild(entry.container)
+      }
+    } else {
+      const container = document.createElement('div')
+      container.style.width = '100%'
+      container.style.height = '100%'
+      container.style.overflow = 'hidden'
+      hostEl.current!.appendChild(container)
+
+      const ui: TerminalUiBridge = {
+        hostEl: hostEl.current,
+        wrapEl: wrapEl.current,
+        popup: null,
+        setPopup: () => {},
+        setSearching: () => {},
+        broadcastActive,
+        onBroadcastWrite,
+        onSessionReady,
+        onSessionClosed
+      }
+
+      const term = new Terminal({ ...termOptions(settingsRef.current, uiLight), allowProposedApi: true, macOptionIsMeta: true })
+      liveTerminals.add(term)
+      const fit = new FitAddon()
+      const search = new SearchAddon()
+      term.loadAddon(fit)
+      term.loadAddon(search)
+      term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)))
+      term.open(container)
+      // WebGL draws box-drawing and block characters itself, pixel exact, so ASCII art
+      // and TUIs line up whatever font is used. Falls back to the DOM renderer.
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => webgl.dispose())
+        term.loadAddon(webgl)
+      } catch {
+        // No WebGL (e.g. GPU blocklisted): the DOM renderer keeps working.
+      }
+      term.loadAddon(new Unicode11Addon())
+      term.unicode.activeVersion = '11'
+      // Measure cells again once the web font is really loaded.
+      void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then((newlyLoaded) => {
+        if (disposed) return
+        term.options.fontFamily = fontStack(settingsRef.current.fontFamily)
+        if (newlyLoaded) clearAllTextureAtlases()
+        fitTerminal(term, fit, ui.hostEl)
+      })
+      fitTerminal(term, fit, ui.hostEl)
+
+      const tracker = new LineTracker()
+      let sessionId: string | null = null
+      let unsubscribe: (() => void) | null = null
+      let exited = false
+      let disposed = false
+      let suggestTimer: ReturnType<typeof setTimeout> | undefined
+      // Automatic reconnection after a dropped connection.
+      let reconnectTimer: ReturnType<typeof setInterval> | undefined
+      let attempt = 0
+
+      /** True when the typed line is visible at the cursor, i.e. it is echoed (not a password). */
+      const echoed = (line: string): boolean => {
+        const buf = term.buffer.active
+        if (buf.type === 'alternate') return false
+        const row = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true, 0, buf.cursorX) ?? ''
+        const tail = line.slice(-Math.min(line.length, buf.cursorX))
+        return tail.length > 0 && row.endsWith(tail)
+      }
+
+      const refreshSuggestions = (): void => {
+        clearTimeout(suggestTimer)
+        if (!settingsRef.current.autocomplete || !tracker.valid || !tracker.line.trim()) return ui.setPopup(null)
+        const line = tracker.line
+        suggestTimer = setTimeout(async () => {
+          if (!echoed(line)) return ui.setPopup(null)
+          const items = await api.suggest(line).catch(() => [])
+          if (disposed || tracker.line !== line || !tracker.valid || !ui.hostEl || !ui.wrapEl) return
+          if (items.length === 0) return ui.setPopup(null)
+          const screen = ui.hostEl.querySelector('.xterm-screen')!.getBoundingClientRect()
+          const cellW = screen.width / term.cols
+          const cellH = screen.height / term.rows
+          const buf = term.buffer.active
+          const left = Math.min(8 + buf.cursorX * cellW, Math.max(8, ui.wrapEl.clientWidth - 300))
+          const below = buf.cursorY < term.rows / 2
+          ui.setPopup({
+            items,
+            sel: 0,
+            left,
+            top: below ? 6 + (buf.cursorY + 1) * cellH + 2 : undefined,
+            bottom: below ? undefined : ui.wrapEl.clientHeight - (6 + buf.cursorY * cellH) + 2
+          })
+        }, 90)
+      }
+
+      /**
+       * Saves a submitted command once its echo has settled on screen. Input that
+       * never shows up on the prompt line (passwords) is not recorded.
+       */
+      const recordIfEchoed = (line: string): void => {
+        const buf = term.buffer.active
+        if (!line.trim() || buf.type === 'alternate') return
+        const y = buf.baseY + buf.cursorY
+        setTimeout(() => {
+          const normal = term.buffer.normal
+          let text = normal.getLine(y)?.translateToString(true) ?? ''
+          for (let i = y; i > 0 && normal.getLine(i)?.isWrapped; i--) {
+            text = (normal.getLine(i - 1)?.translateToString() ?? '') + text
+          }
+          if (text.trimEnd().endsWith(line.trimEnd())) api.recordHistory(line)
+        }, 300)
+      }
+
+      const sendInput = (data: string): void => {
+        if (!sessionId) return
+        const submitted = tracker.feed(data)
+        if (ui.broadcastActive && ui.onBroadcastWrite) {
+          ui.onBroadcastWrite(data)
+        } else {
+          api.writeSession(sessionId, data)
+        }
+        if (submitted !== undefined) recordIfEchoed(submitted)
+        if (submitted !== undefined || data.startsWith('\x1b')) ui.setPopup(null)
+        else refreshSuggestions()
+      }
+
+      const accept = (s: Suggestion): void => {
+        ui.setPopup(null)
+        sendInput('\x7f'.repeat(s.replaceLength) + s.insert)
+      }
+
+      const paste = (): void => {
+        void navigator.clipboard.readText().then((text) => text && term.paste(text))
+      }
+
+      const cancelReconnect = (): void => {
+        clearInterval(reconnectTimer)
+        reconnectTimer = undefined
+      }
+
+      const scheduleReconnect = (): boolean => {
+        const canRetry = settingsRef.current.autoReconnect && effectiveTarget.kind === 'host' && attempt < RECONNECT_DELAYS.length
+        if (!canRetry || disposed) return false
+        let left = RECONNECT_DELAYS[attempt++]
+        const show = (): void => {
+          term.write(`\r\x1b[2K\x1b[33m${translate('reconnecting')} ${left}s (${attempt}/${RECONNECT_DELAYS.length})\x1b[0m \x1b[2m${translate('reconnectHint')}\x1b[0m`)
+        }
+        show()
+        reconnectTimer = setInterval(() => {
+          left--
+          if (left > 0) return show()
+          cancelReconnect()
+          term.write('\r\n')
+          void connect()
+        }, 1000)
+        return true
+      }
+
+      const connect = async (): Promise<void> => {
+        cancelReconnect()
+        exited = false
+        tracker.reset()
+        const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : (paneTitle || tab.title)
+        term.write(`\x1b[2m${translate('connecting')} ${label}…\x1b[0m\r\n`)
+        try {
+          await ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize)
+          if (disposed) return
+          fitTerminal(term, fit, ui.hostEl)
+          const info = await api.openSession(effectiveTarget, term.cols, term.rows)
+          if (disposed) return api.closeSession(info.id)
+          attempt = 0
+          sessionId = info.id
+          tabSessions.set(sKey, info.id)
+          ui.onSessionReady?.(sKey, info.id)
+          fitTerminal(term, fit, ui.hostEl)
+          api.resizeSession(info.id, term.cols, term.rows)
+          unsubscribe = subscribe(info.id, {
+            data: (d) => term.write(d),
+            exit: (reason) => {
+              exited = true
+              sessionId = null
+              tabSessions.delete(sKey)
+              ui.onSessionClosed?.(sKey)
+              unsubscribe?.()
+              ui.setPopup(null)
+              term.write(`\r\n\x1b[33m[${translate('sessionClosed')}: ${reason}]\x1b[0m\r\n`)
+              if (reason !== 'disconnected' || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
+            }
+          })
+        } catch (err) {
+          exited = true
+          term.write(`\x1b[31m${errorMessage(err)}\x1b[0m\r\n`)
+          // Keep retrying only while recovering from a drop, not on the first connection.
+          if (attempt === 0 || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
+        }
+      }
+
+      term.onData((data) => {
+        if (exited) {
+          if (data === '\r') void connect()
+          else if (data === '\x1b' && reconnectTimer) {
+            cancelReconnect()
+            term.write(`\r\n${translate('pressEnter')}\r\n`)
+          }
+          return
+        }
+        sendInput(data)
+      })
+      term.onResize(({ cols, rows }) => sessionId && api.resizeSession(sessionId, cols, rows))
+      term.onBell(() => settingsRef.current.bellSound && beep())
+      // Full-screen programs (vim, less, man) use the alternate buffer; what is typed there
+      // is not a shell command line.
+      term.buffer.onBufferChange((b) => {
+        tracker.reset()
+        if (b.type === 'alternate') tracker.valid = false
+        ui.setPopup(null)
+      })
+      term.onSelectionChange(() => {
+        if (settingsRef.current.copyOnSelect && term.hasSelection()) void navigator.clipboard.writeText(term.getSelection())
+      })
+
+      // Keys handled here must also be cancelled: xterm skips preventDefault() for them,
+      // and an uncancelled Tab would move the focus out of the terminal.
+      const handled = (ev: KeyboardEvent): false => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        return false
+      }
+      term.attachCustomKeyEventHandler((ev) => {
+        const p = ui.popup
+        if (ev.type !== 'keydown' || !p) return true
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+          const n = p.items.length
+          ui.setPopup({ ...p, sel: (p.sel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n })
+          return handled(ev)
+        }
+        if (ev.key === 'Tab') {
+          accept(p.items[p.sel])
+          return handled(ev)
+        }
+        if (ev.key === 'Escape') {
+          ui.setPopup(null)
+          return handled(ev)
+        }
+        return true
+      })
+
+      entry = {
+        sKey,
+        container,
+        term,
+        fit,
+        search,
+        ui,
+        accept,
+        paste,
+        getSessionId: () => sessionId,
+        dispose: () => {
+          disposed = true
+          liveTerminals.delete(term)
+          clearTimeout(suggestTimer)
+          cancelReconnect()
+          terminalActions.delete(sKey)
+          unsubscribe?.()
+          if (sessionId) api.closeSession(sessionId)
+          tabSessions.delete(sKey)
+          ui.onSessionClosed?.(sKey)
+          container.remove()
+          term.dispose()
+        }
+      }
+      retainedTerminals.set(sKey, entry)
+      void connect()
     }
-    term.loadAddon(new Unicode11Addon())
-    term.unicode.activeVersion = '11'
-    // Measure cells again once the web font is really loaded.
-    void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then((newlyLoaded) => {
-      if (disposed) return
-      term.options.fontFamily = fontStack(settingsRef.current.fontFamily)
-      if (newlyLoaded) clearAllTextureAtlases()
-      fitTerminal(term, fit, hostEl.current)
-    })
+
+    const { term, fit, search, accept, paste, ui } = entry
+    ui.hostEl = hostEl.current
+    ui.wrapEl = wrapEl.current
+    ui.setPopup = (p: Popup | null) => {
+      popupRef.current = p
+      ui.popup = p
+      setPopupState(p)
+    }
+    ui.setSearching = setSearching
+    ui.broadcastActive = broadcastActive
+    ui.onBroadcastWrite = onBroadcastWrite
+    ui.onSessionReady = onSessionReady
+    ui.onSessionClosed = onSessionClosed
+
     termRef.current = term
     fitRef.current = fit
     searchRef.current = search
-    fitTerminal(term, fit, hostEl.current)
+    acceptRef.current = accept
 
-    const tracker = new LineTracker()
-    let sessionId: string | null = null
-    let unsubscribe: (() => void) | null = null
-    let exited = false
-    let disposed = false
-    let suggestTimer: ReturnType<typeof setTimeout> | undefined
-    // Automatic reconnection after a dropped connection.
-    let reconnectTimer: ReturnType<typeof setInterval> | undefined
-    let attempt = 0
-
-    /** True when the typed line is visible at the cursor, i.e. it is echoed (not a password). */
-    const echoed = (line: string): boolean => {
-      const buf = term.buffer.active
-      if (buf.type === 'alternate') return false
-      const row = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true, 0, buf.cursorX) ?? ''
-      const tail = line.slice(-Math.min(line.length, buf.cursorX))
-      return tail.length > 0 && row.endsWith(tail)
+    const existingSid = entry.getSessionId()
+    if (existingSid) {
+      onSessionReady?.(sKey, existingSid)
     }
 
-    const refreshSuggestions = (): void => {
-      clearTimeout(suggestTimer)
-      if (!settingsRef.current.autocomplete || !tracker.valid || !tracker.line.trim()) return setPopup(null)
-      const line = tracker.line
-      suggestTimer = setTimeout(async () => {
-        if (!echoed(line)) return setPopup(null)
-        const items = await api.suggest(line).catch(() => [])
-        if (disposed || tracker.line !== line || !tracker.valid) return
-        if (items.length === 0) return setPopup(null)
-        const screen = hostEl.current!.querySelector('.xterm-screen')!.getBoundingClientRect()
-        const cellW = screen.width / term.cols
-        const cellH = screen.height / term.rows
-        const buf = term.buffer.active
-        const left = Math.min(8 + buf.cursorX * cellW, Math.max(8, wrapEl.current!.clientWidth - 300))
-        const below = buf.cursorY < term.rows / 2
-        setPopup({
-          items,
-          sel: 0,
-          left,
-          top: below ? 6 + (buf.cursorY + 1) * cellH + 2 : undefined,
-          bottom: below ? undefined : wrapEl.current!.clientHeight - (6 + buf.cursorY * cellH) + 2
-        })
-      }, 90)
-    }
-
-    /**
-     * Saves a submitted command once its echo has settled on screen. Input that
-     * never shows up on the prompt line (passwords) is not recorded.
-     */
-    const recordIfEchoed = (line: string): void => {
-      const buf = term.buffer.active
-      if (!line.trim() || buf.type === 'alternate') return
-      const y = buf.baseY + buf.cursorY
-      setTimeout(() => {
-        const normal = term.buffer.normal
-        let text = normal.getLine(y)?.translateToString(true) ?? ''
-        for (let i = y; i > 0 && normal.getLine(i)?.isWrapped; i--) {
-          text = (normal.getLine(i - 1)?.translateToString() ?? '') + text
-        }
-        if (text.trimEnd().endsWith(line.trimEnd())) api.recordHistory(line)
-      }, 300)
-    }
-
-    const sendInput = (data: string): void => {
-      if (!sessionId) return
-      const submitted = tracker.feed(data)
-      if (broadcastActive && onBroadcastWrite) {
-        onBroadcastWrite(data)
-      } else {
-        api.writeSession(sessionId, data)
-      }
-      if (submitted !== undefined) recordIfEchoed(submitted)
-      if (submitted !== undefined || data.startsWith('\x1b')) setPopup(null)
-      else refreshSuggestions()
-    }
-
-    const accept = (s: Suggestion): void => {
-      setPopup(null)
-      sendInput('\x7f'.repeat(s.replaceLength) + s.insert)
-    }
-
-    const paste = (): void => {
-      void navigator.clipboard.readText().then((text) => text && term.paste(text))
-    }
-
-    const cancelReconnect = (): void => {
-      clearInterval(reconnectTimer)
-      reconnectTimer = undefined
-    }
-
-    const scheduleReconnect = (): boolean => {
-      const canRetry = settingsRef.current.autoReconnect && tab.target.kind === 'host' && attempt < RECONNECT_DELAYS.length
-      if (!canRetry || disposed) return false
-      let left = RECONNECT_DELAYS[attempt++]
-      const show = (): void => {
-        term.write(`\r\x1b[2K\x1b[33m${translate('reconnecting')} ${left}s (${attempt}/${RECONNECT_DELAYS.length})\x1b[0m \x1b[2m${translate('reconnectHint')}\x1b[0m`)
-      }
-      show()
-      reconnectTimer = setInterval(() => {
-        left--
-        if (left > 0) return show()
-        cancelReconnect()
-        term.write('\r\n')
-        void connect()
-      }, 1000)
-      return true
-    }
-
-    const sKey = paneId || tab.id
-    const connect = async (): Promise<void> => {
-      cancelReconnect()
-      exited = false
-      tracker.reset()
-      const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : (paneTitle || tab.title)
-      term.write(`\x1b[2m${translate('connecting')} ${label}…\x1b[0m\r\n`)
-      try {
-        await ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize)
-        if (disposed) return
-        fitTerminal(term, fit, hostEl.current)
-        const info = await api.openSession(effectiveTarget, term.cols, term.rows)
-        if (disposed) return api.closeSession(info.id)
-        attempt = 0
-        sessionId = info.id
-        tabSessions.set(sKey, info.id)
-        onSessionReady?.(sKey, info.id)
-        fitTerminal(term, fit, hostEl.current)
-        api.resizeSession(info.id, term.cols, term.rows)
-        unsubscribe = subscribe(info.id, {
-          data: (d) => term.write(d),
-          exit: (reason) => {
-            exited = true
-            sessionId = null
-            tabSessions.delete(sKey)
-            onSessionClosed?.(sKey)
-            unsubscribe?.()
-            setPopup(null)
-            term.write(`\r\n\x1b[33m[${translate('sessionClosed')}: ${reason}]\x1b[0m\r\n`)
-            if (reason !== 'disconnected' || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
-          }
-        })
-      } catch (err) {
-        exited = true
-        term.write(`\x1b[31m${errorMessage(err)}\x1b[0m\r\n`)
-        // Keep retrying only while recovering from a drop, not on the first connection.
-        if (attempt === 0 || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
-      }
-    }
-
-    term.onData((data) => {
-      if (exited) {
-        if (data === '\r') void connect()
-        else if (data === '\x1b' && reconnectTimer) {
-          cancelReconnect()
-          term.write(`\r\n${translate('pressEnter')}\r\n`)
-        }
-        return
-      }
-      sendInput(data)
-    })
-    term.onResize(({ cols, rows }) => sessionId && api.resizeSession(sessionId, cols, rows))
-    term.onBell(() => settingsRef.current.bellSound && beep())
-    // Full-screen programs (vim, less, man) use the alternate buffer; what is typed there
-    // is not a shell command line.
-    term.buffer.onBufferChange((b) => {
-      tracker.reset()
-      if (b.type === 'alternate') tracker.valid = false
-      setPopup(null)
-    })
-    term.onSelectionChange(() => {
-      if (settingsRef.current.copyOnSelect && term.hasSelection()) void navigator.clipboard.writeText(term.getSelection())
-    })
     const onContextMenu = (e: MouseEvent): void => {
       if (!settingsRef.current.copyOnSelect) return
       e.preventDefault()
@@ -373,39 +518,16 @@ export function TerminalTab(props: TerminalTabProps) {
     }
     hostEl.current!.addEventListener('contextmenu', onContextMenu)
 
-    // Keys handled here must also be cancelled: xterm skips preventDefault() for them,
-    // and an uncancelled Tab would move the focus out of the terminal.
-    const handled = (ev: KeyboardEvent): false => {
-      ev.preventDefault()
-      ev.stopPropagation()
-      return false
-    }
-    term.attachCustomKeyEventHandler((ev) => {
-      const p = popupRef.current
-      if (ev.type !== 'keydown' || !p) return true
-      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-        const n = p.items.length
-        setPopup({ ...p, sel: (p.sel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n })
-        return handled(ev)
-      }
-      if (ev.key === 'Tab') {
-        accept(p.items[p.sel])
-        return handled(ev)
-      }
-      if (ev.key === 'Escape') {
-        setPopup(null)
-        return handled(ev)
-      }
-      return true
-    })
-
-    terminalActions.set(tab.id, {
+    const actions = {
       copy: () => term.hasSelection() && void navigator.clipboard.writeText(term.getSelection()),
       paste,
       selectAll: () => term.selectAll(),
-      find: () => setSearching(true)
-    })
+      find: () => ui.setSearching(true)
+    }
+    terminalActions.set(tab.id, actions)
+    terminalActions.set(sKey, actions)
 
+    let mounted = true
     let resizeRaf = 0
     let wasHidden = false
     const observer = new ResizeObserver(() => {
@@ -420,32 +542,32 @@ export function TerminalTab(props: TerminalTabProps) {
       fitTerminal(term, fit, el)
       if (unhidden) refreshTerminalRender(term)
       resizeRaf = requestAnimationFrame(() => {
-        if (disposed) return
+        if (!mounted) return
         fitTerminal(term, fit, hostEl.current)
         if (unhidden) refreshTerminalRender(term)
       })
     })
     observer.observe(hostEl.current!)
-    acceptRef.current = accept
-    void connect()
+    fitTerminal(term, fit, hostEl.current)
+    refreshTerminalRender(term)
+    resizeRaf = requestAnimationFrame(() => {
+      if (!mounted) return
+      fitTerminal(term, fit, hostEl.current)
+      refreshTerminalRender(term)
+    })
 
     const el = hostEl.current!
     return () => {
-      disposed = true
-      liveTerminals.delete(term)
+      mounted = false
       cancelAnimationFrame(resizeRaf)
-      clearTimeout(suggestTimer)
-      cancelReconnect()
       observer.disconnect()
       el.removeEventListener('contextmenu', onContextMenu)
-      terminalActions.delete(sKey)
-      unsubscribe?.()
-      if (sessionId) api.closeSession(sessionId)
-      tabSessions.delete(sKey)
-      onSessionClosed?.(sKey)
-      term.dispose()
+      entry.disposeTimer = setTimeout(() => {
+        retainedTerminals.delete(sKey)
+        entry.dispose()
+      }, 0)
     }
-    // The terminal lives for the whole life of the tab.
+    // The terminal lives for the whole life of the tab/pane.
   }, [])
 
   useEffect(() => {

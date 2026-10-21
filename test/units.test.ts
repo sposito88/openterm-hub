@@ -334,4 +334,29 @@ test('ensureFontLoaded resolves true only on first load of a family/size pair so
   assert.equal(differentSize, true)
 })
 
+test('mergeTabs and splitTab preserve original tab IDs as pane IDs so live sessions are retained', async () => {
+  ;(globalThis as Record<string, unknown>).window = {
+    matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    openterm: {
+      onChanged: () => {},
+      onForwardStatus: () => {},
+      onTransferProgress: () => {},
+      onHostKeyPrompt: () => {},
+      onCredentialPrompt: () => {}
+    }
+  }
+  const { useApp } = await import('../src/renderer/src/state')
+  useApp.getState().openTab('terminal', 'Host A', { kind: 'host', hostId: 'h1' })
+  useApp.getState().openTab('terminal', 'Local', { kind: 'local' })
+  const [tabA, tabB] = useApp.getState().tabs
+  useApp.getState().mergeTabs(tabB.id, tabA.id, 'horizontal')
+  const merged = useApp.getState().tabs.find((t) => t.id === tabA.id)!
+  assert.equal(merged.kind, 'workspace')
+  assert.deepEqual(
+    merged.panes?.map((p) => p.id),
+    [tabA.id, tabB.id]
+  )
+})
+
+
 

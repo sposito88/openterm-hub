@@ -150,7 +150,7 @@ export const useApp = create<AppState>((set, get) => ({
           )
         }
       } else {
-        const p1: WorkspaceTabPane = { id: `${tab.id}-p1`, target: tab.target, title: tab.title }
+        const p1: WorkspaceTabPane = { id: tab.id, target: tab.target, title: tab.title }
         const p2: WorkspaceTabPane = { id: newPaneId, target, title }
         return {
           tabs: s.tabs.map((t) =>
@@ -179,11 +179,11 @@ export const useApp = create<AppState>((set, get) => ({
       const sourcePanes: WorkspaceTabPane[] =
         source.kind === 'workspace' && source.panes
           ? source.panes
-          : [{ id: `${source.id}-p1`, target: source.target, title: source.title }]
+          : [{ id: source.id, target: source.target, title: source.title }]
       const targetPanes: WorkspaceTabPane[] =
         target.kind === 'workspace' && target.panes
           ? target.panes
-          : [{ id: `${target.id}-p1`, target: target.target, title: target.title }]
+          : [{ id: target.id, target: target.target, title: target.title }]
       const mergedPanes = [...targetPanes, ...sourcePanes]
       const title = target.kind === 'workspace' ? target.title : `${target.title} + ${source.title}`
       const newTabs = s.tabs

@@ -102,9 +102,6 @@ export function WorkspaceTab({ tab, active = true }: { tab: Tab; active?: boolea
     return h.label.toLowerCase().includes(q) || h.hostname.toLowerCase().includes(q) || (h.group ?? '').toLowerCase().includes(q)
   })
 
-  // When a pane is maximized, show only that pane
-  const visiblePanes = isMaximized ? panes.filter((p) => p.id === tab.maximizedPaneId) : panes
-
   return (
     <div className="workspace-view" ref={containerRef}>
       {/* Top action bar of the workspace */}
@@ -135,16 +132,21 @@ export function WorkspaceTab({ tab, active = true }: { tab: Tab; active?: boolea
 
       {/* Grid of panes */}
       <div className={`workspace-panes ${layout === 'vertical' ? 'col' : 'row'}`}>
-        {visiblePanes.map((pane, idx) => {
+        {panes.map((pane, idx) => {
           const isFirst = idx === 0
           const hasTwo = panes.length === 2 && !isMaximized
-          const paneStyle = hasTwo ? { flex: isFirst ? `${ratio} 1 0%` : `${100 - ratio} 1 0%` } : { flex: '1 1 0%' }
+          const hiddenByMaximize = isMaximized && tab.maximizedPaneId !== pane.id
+          const paneStyle = hiddenByMaximize
+            ? { display: 'none' }
+            : hasTwo
+              ? { flex: isFirst ? `${ratio} 1 0%` : `${100 - ratio} 1 0%` }
+              : { flex: '1 1 0%' }
 
           return (
             <div key={pane.id} className="workspace-pane-item" style={paneStyle}>
               <TerminalTab
                 tab={tab}
-                active={active}
+                active={active && !hiddenByMaximize}
                 paneId={pane.id}
                 paneTarget={pane.target}
                 paneTitle={pane.title}
