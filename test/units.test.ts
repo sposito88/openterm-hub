@@ -285,3 +285,39 @@ test('SFTP multi-select: normal click, Ctrl/Cmd toggle, Shift range, and context
     lastClicked: '/c'
   })
 })
+
+test('trimTrailingSpaces prevents space-padded TUI rows (e.g. top) from reflowing into blank lines on unmaximize', async () => {
+  const { trimTrailingSpaces } = await import('../src/renderer/src/lineTracker')
+  ;(globalThis as Record<string, unknown>).window ??= {
+    navigator: { userAgent: 'linux', platform: 'Linux' },
+    document: {}
+  }
+  ;(globalThis as Record<string, unknown>).navigator ??= (globalThis as { window: { navigator: unknown } }).window.navigator
+  ;(globalThis as Record<string, unknown>).document ??= (globalThis as { window: { document: unknown } }).window.document
+  const { Terminal } = await import('@xterm/xterm')
+
+  const term = new Terminal({ cols: 180, rows: 10, allowProposedApi: true })
+  const rows = [
+    '\x1b[7m  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND' + ' '.repeat(104) + '\x1b[m',
+    '   18 root      20   0       0      0      0 I   0.3   0.0  30:18.88 rcu_preempt' + ' '.repeat(100),
+    '    1 root      20   0  173848  10332   9728 S   0.0   0.0  96:56.20 systemd' + ' '.repeat(104),
+    '<VMA-HML-PRDB2>[sgpprd@sgpbd2c101b2:/export/home/sgpprd]$ git '
+  ]
+  await new Promise<void>((resolve) => term.write(rows.join('\r\n'), resolve))
+  trimTrailingSpaces(term)
+  term.resize(100, 10)
+
+  const active = term.buffer.active
+  assert.equal(active.cursorY, 3)
+  assert.equal(active.getLine(0)?.isWrapped, false)
+  assert.equal(active.getLine(1)?.isWrapped, false)
+  assert.equal(active.getLine(2)?.isWrapped, false)
+  assert.equal(active.getLine(3)?.isWrapped, false)
+  // Trailing space before the cursor on the active prompt line is preserved
+  assert.equal(
+    active.getLine(active.baseY + active.cursorY)?.translateToString(true, 0, active.cursorX),
+    '<VMA-HML-PRDB2>[sgpprd@sgpbd2c101b2:/export/home/sgpprd]$ git '
+  )
+  term.dispose()
+})
+

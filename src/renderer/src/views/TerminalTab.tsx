@@ -10,7 +10,7 @@ import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
 import { ensureFontLoaded, fontStack } from '../fonts'
 import { translate, useT } from '../i18n'
-import { LineTracker } from '../lineTracker'
+import { LineTracker, trimTrailingSpaces } from '../lineTracker'
 import { subscribe, tabSessions, terminalActions } from '../sessionBus'
 import { useApp, useUiLight, type Tab } from '../state'
 import { findTerminalTheme } from '../terminalThemes'
@@ -48,6 +48,18 @@ function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
     drawBoldTextInBrightColors: s.boldBright,
     theme: findTerminalTheme(s.terminalTheme, uiLight).colors
   }
+}
+
+function fitTerminal(term: Terminal | null, fit: FitAddon | null, el: HTMLElement | null): void {
+  if (!term || !fit || !el || el.offsetWidth <= 0 || el.offsetHeight <= 0) return
+  const core = (term as unknown as {
+    _core?: {
+      _charSizeService?: { measure(): void }
+    }
+  })._core
+  core?._charSizeService?.measure()
+  trimTrailingSpaces(term)
+  fit.fit()
 }
 
 let audio: AudioContext | null = null
@@ -145,12 +157,13 @@ export function TerminalTab(props: TerminalTabProps) {
     void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then(() => {
       if (disposed) return
       term.options.fontFamily = fontStack(settingsRef.current.fontFamily)
-      if (hostEl.current && hostEl.current.offsetWidth > 0) fit.fit()
+      term.clearTextureAtlas()
+      fitTerminal(term, fit, hostEl.current)
     })
     termRef.current = term
     fitRef.current = fit
     searchRef.current = search
-    if (hostEl.current!.offsetWidth > 0) fit.fit()
+    fitTerminal(term, fit, hostEl.current)
 
     const tracker = new LineTracker()
     let sessionId: string | null = null
@@ -267,12 +280,17 @@ export function TerminalTab(props: TerminalTabProps) {
       const label = host ? `${host.username ? host.username + '@' : ''}${host.hostname}` : (paneTitle || tab.title)
       term.write(`\x1b[2m${translate('connecting')} ${label}…\x1b[0m\r\n`)
       try {
+        await ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize)
+        if (disposed) return
+        fitTerminal(term, fit, hostEl.current)
         const info = await api.openSession(effectiveTarget, term.cols, term.rows)
         if (disposed) return api.closeSession(info.id)
         attempt = 0
         sessionId = info.id
         tabSessions.set(sKey, info.id)
         onSessionReady?.(sKey, info.id)
+        fitTerminal(term, fit, hostEl.current)
+        api.resizeSession(info.id, term.cols, term.rows)
         unsubscribe = subscribe(info.id, {
           data: (d) => term.write(d),
           exit: (reason) => {
@@ -357,8 +375,13 @@ export function TerminalTab(props: TerminalTabProps) {
       find: () => setSearching(true)
     })
 
+    let resizeRaf = 0
     const observer = new ResizeObserver(() => {
-      if (hostEl.current && hostEl.current.offsetWidth > 0) fit.fit()
+      cancelAnimationFrame(resizeRaf)
+      fitTerminal(term, fit, hostEl.current)
+      resizeRaf = requestAnimationFrame(() => {
+        if (!disposed) fitTerminal(term, fit, hostEl.current)
+      })
     })
     observer.observe(hostEl.current!)
     acceptRef.current = accept
@@ -367,6 +390,7 @@ export function TerminalTab(props: TerminalTabProps) {
     const el = hostEl.current!
     return () => {
       disposed = true
+      cancelAnimationFrame(resizeRaf)
       clearTimeout(suggestTimer)
       cancelReconnect()
       observer.disconnect()
@@ -388,7 +412,8 @@ export function TerminalTab(props: TerminalTabProps) {
     void ensureFontLoaded(settings.fontFamily, settings.fontSize).then(() => {
       if (cancelled) return
       Object.assign(term.options, termOptions(settings, uiLight))
-      if (hostEl.current && hostEl.current.offsetWidth > 0) fitRef.current?.fit()
+      term.clearTextureAtlas()
+      fitTerminal(term, fitRef.current, hostEl.current)
     })
     return () => {
       cancelled = true
@@ -398,7 +423,7 @@ export function TerminalTab(props: TerminalTabProps) {
   useEffect(() => {
     if (!active) return
     requestAnimationFrame(() => {
-      if (hostEl.current!.offsetWidth > 0) fitRef.current?.fit()
+      fitTerminal(termRef.current, fitRef.current, hostEl.current)
       termRef.current?.focus()
     })
   }, [active])

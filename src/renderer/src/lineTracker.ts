@@ -39,3 +39,52 @@ export class LineTracker {
     this.valid = true
   }
 }
+
+interface XtermInternalLine {
+  length: number
+  isWrapped: boolean
+  _data?: Uint32Array
+  setCell(x: number, cell: unknown): void
+}
+
+interface XtermInternalBuffer {
+  ybase: number
+  y: number
+  x: number
+  getNullCell(): unknown
+  lines: {
+    length: number
+    get(i: number): XtermInternalLine | undefined
+  }
+}
+
+/**
+ * Full-width curses/procps programs such as `top` pad every row with literal
+ * ASCII spaces (0x20) out to the current terminal width instead of using `\x1b[K`.
+ * When the window is later un-maximized or narrowed, xterm.js reflows those
+ * trailing spaces onto continuation lines, producing blank lines between rows.
+ * Converting trailing spaces back to null cells before resizing prevents that.
+ */
+export function trimTrailingSpaces(term: unknown): void {
+  const buf = (term as { _core?: { _bufferService?: { buffer?: XtermInternalBuffer } } })?._core?._bufferService?.buffer
+  if (!buf?.lines) return
+  const nullCell = buf.getNullCell()
+  const cursorLine = buf.ybase + buf.y
+  for (let y = 0; y < buf.lines.length; y++) {
+    // Only trim at the end of a logical line (not a line that wraps onto y + 1).
+    if (y + 1 < buf.lines.length && buf.lines.get(y + 1)?.isWrapped) continue
+    const line = buf.lines.get(y)
+    if (!line?._data) continue
+    const minCol = y === cursorLine ? buf.x : 0
+    for (let x = line.length - 1; x >= minCol; x--) {
+      const code = line._data[x * 3] & 0x3fffff
+      if (code === 0) continue
+      if (code === 0x20) {
+        line.setCell(x, nullCell)
+      } else {
+        break
+      }
+    }
+  }
+}
+
