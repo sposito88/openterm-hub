@@ -101,6 +101,8 @@ fi
 # --- install -----------------------------------------------------------------
 case "$MODE" in
   deb)
+    chmod 755 "$TMP"
+    chmod 644 "$TMP/$FILE"
     say "Instalando o pacote .deb (pode pedir a sua senha do sudo)"
     run_root apt-get install -y "$TMP/$FILE"
     say "Pronto! Abra o OpenTerm Hub pelo menu de aplicativos ou rode: openterm-hub"
