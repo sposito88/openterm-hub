@@ -6,7 +6,7 @@ export interface OsInfo {
   color: string
 }
 
-export const DEFAULT_BADGE_COLOR = "#004878"
+export const DEFAULT_BADGE_COLOR = "var(--badge-default, #0a6842)"
 
 export const OS_LIST: ReadonlyArray<OsInfo> = [
   {

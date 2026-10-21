@@ -12,6 +12,7 @@
   --danger: #ff6b6b;
   --warn: #ffb547;
   --term-bg: #0b0d11;
+  --badge-default: #0a6842;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
@@ -28,6 +29,7 @@
   --danger: #d43c3c;
   --warn: #b26a00;
   --term-bg: #fbfbfc;
+  --badge-default: #0f9d66;
   --shadow: 0 12px 40px rgba(20, 30, 50, 0.15);
 }
 
