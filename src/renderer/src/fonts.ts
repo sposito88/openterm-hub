@@ -40,10 +40,21 @@ export function fontStack(setting: string): string {
   return `"${setting.replace(/"/g, '')}", "JetBrains Mono", monospace`
 }
 
-/** Waits until the first family of the stack is loaded, so xterm measures the right glyphs. */
-export async function ensureFontLoaded(setting: string, size: number): Promise<void> {
+const loadedFonts = new Set<string>()
+
+/**
+ * Waits until the first family of the stack is loaded, so xterm measures the right glyphs.
+ * Resolves to true the first time a given family/size pair finishes loading.
+ */
+export async function ensureFontLoaded(setting: string, size: number): Promise<boolean> {
   const first = fontStack(setting).split(',')[0].trim().replace(/^["']|["']$/g, '')
-  await Promise.all([document.fonts.load(`${size}px "${first}"`), document.fonts.load(`bold ${size}px "${first}"`)]).catch(() => {})
+  const key = `${first}:${size}`
+  if (loadedFonts.has(key)) return false
+  if (typeof document !== 'undefined' && document.fonts) {
+    await Promise.all([document.fonts.load(`${size}px "${first}"`), document.fonts.load(`bold ${size}px "${first}"`)]).catch(() => {})
+  }
+  loadedFonts.add(key)
+  return true
 }
 
 let systemFonts: Promise<string[]> | null = null

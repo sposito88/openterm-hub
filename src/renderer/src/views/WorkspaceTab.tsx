@@ -6,7 +6,7 @@ import { useT } from '../i18n'
 import { attempt, useApp, type Tab } from '../state'
 import { TerminalTab } from './TerminalTab'
 
-export function WorkspaceTab({ tab }: { tab: Tab }) {
+export function WorkspaceTab({ tab, active = true }: { tab: Tab; active?: boolean }) {
   const t = useT()
   const snap = useApp((s) => s.snapshot)!
   const splitTab = useApp((s) => s.splitTab)
@@ -144,7 +144,7 @@ export function WorkspaceTab({ tab }: { tab: Tab }) {
             <div key={pane.id} className="workspace-pane-item" style={paneStyle}>
               <TerminalTab
                 tab={tab}
-                active={true}
+                active={active}
                 paneId={pane.id}
                 paneTarget={pane.target}
                 paneTitle={pane.title}

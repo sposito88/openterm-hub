@@ -321,3 +321,17 @@ test('trimTrailingSpaces prevents space-padded TUI rows (e.g. top) from reflowin
   term.dispose()
 })
 
+test('ensureFontLoaded resolves true only on first load of a family/size pair so opening a second tab does not wipe shared WebGL atlas', async () => {
+  const { createRequire } = await import('node:module')
+  const req = createRequire(import.meta.url)
+  req.extensions['.css'] = () => {}
+  const { ensureFontLoaded } = await import('../src/renderer/src/fonts')
+  const first = await ensureFontLoaded('JetBrains Mono', 14)
+  const second = await ensureFontLoaded('JetBrains Mono', 14)
+  const differentSize = await ensureFontLoaded('JetBrains Mono', 16)
+  assert.equal(first, true)
+  assert.equal(second, false)
+  assert.equal(differentSize, true)
+})
+
+

@@ -242,7 +242,7 @@ export function App() {
             {tab.kind === 'terminal' ? (
               <TerminalTab tab={tab} active={activeTab === tab.id} />
             ) : tab.kind === 'workspace' ? (
-              <WorkspaceTab tab={tab} />
+              <WorkspaceTab tab={tab} active={activeTab === tab.id} />
             ) : (
               <SftpTab tab={tab} />
             )}

@@ -50,6 +50,32 @@ function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
   }
 }
 
+const liveTerminals = new Set<Terminal>()
+
+function refreshTerminalRender(term: Terminal | null): void {
+  if (!term) return
+  const core = (term as unknown as {
+    _core?: {
+      _renderService?: { clear(): void }
+    }
+  })._core
+  core?._renderService?.clear()
+  if (term.rows > 0) term.refresh(0, term.rows - 1)
+}
+
+/**
+ * @xterm/addon-webgl shares a single TextureAtlas instance across all terminals
+ * that use the same font and theme. Clearing the atlas on one terminal wipes the
+ * shared glyph pages without clearing `_model` on the others, so every live
+ * terminal must reset its renderer model and redraw together.
+ */
+function clearAllTextureAtlases(): void {
+  for (const t of liveTerminals) {
+    t.clearTextureAtlas()
+    refreshTerminalRender(t)
+  }
+}
+
 function fitTerminal(term: Terminal | null, fit: FitAddon | null, el: HTMLElement | null): void {
   if (!term || !fit || !el || el.offsetWidth <= 0 || el.offsetHeight <= 0) return
   const core = (term as unknown as {
@@ -58,7 +84,10 @@ function fitTerminal(term: Terminal | null, fit: FitAddon | null, el: HTMLElemen
     }
   })._core
   core?._charSizeService?.measure()
-  trimTrailingSpaces(term)
+  const dims = fit.proposeDimensions()
+  if (dims && dims.cols < term.cols) {
+    trimTrailingSpaces(term)
+  }
   fit.fit()
 }
 
@@ -122,6 +151,7 @@ export function TerminalTab(props: TerminalTabProps) {
   const fitRef = useRef<FitAddon | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const settingsRef = useRef(settings)
+  const prevVisualKeyRef = useRef(`${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${settings.terminalTheme}|${uiLight}`)
   const popupRef = useRef<Popup | null>(null)
   const acceptRef = useRef<(s: Suggestion) => void>(() => {})
   const [popup, setPopupState] = useState<Popup | null>(null)
@@ -136,6 +166,7 @@ export function TerminalTab(props: TerminalTabProps) {
 
   useEffect(() => {
     const term = new Terminal({ ...termOptions(settingsRef.current, uiLight), allowProposedApi: true, macOptionIsMeta: true })
+    liveTerminals.add(term)
     const fit = new FitAddon()
     const search = new SearchAddon()
     term.loadAddon(fit)
@@ -154,10 +185,10 @@ export function TerminalTab(props: TerminalTabProps) {
     term.loadAddon(new Unicode11Addon())
     term.unicode.activeVersion = '11'
     // Measure cells again once the web font is really loaded.
-    void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then(() => {
+    void ensureFontLoaded(settingsRef.current.fontFamily, settingsRef.current.fontSize).then((newlyLoaded) => {
       if (disposed) return
       term.options.fontFamily = fontStack(settingsRef.current.fontFamily)
-      term.clearTextureAtlas()
+      if (newlyLoaded) clearAllTextureAtlases()
       fitTerminal(term, fit, hostEl.current)
     })
     termRef.current = term
@@ -376,11 +407,22 @@ export function TerminalTab(props: TerminalTabProps) {
     })
 
     let resizeRaf = 0
+    let wasHidden = false
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(resizeRaf)
-      fitTerminal(term, fit, hostEl.current)
+      const el = hostEl.current
+      if (!el || el.offsetWidth <= 0 || el.offsetHeight <= 0) {
+        wasHidden = true
+        return
+      }
+      const unhidden = wasHidden
+      wasHidden = false
+      fitTerminal(term, fit, el)
+      if (unhidden) refreshTerminalRender(term)
       resizeRaf = requestAnimationFrame(() => {
-        if (!disposed) fitTerminal(term, fit, hostEl.current)
+        if (disposed) return
+        fitTerminal(term, fit, hostEl.current)
+        if (unhidden) refreshTerminalRender(term)
       })
     })
     observer.observe(hostEl.current!)
@@ -390,6 +432,7 @@ export function TerminalTab(props: TerminalTabProps) {
     const el = hostEl.current!
     return () => {
       disposed = true
+      liveTerminals.delete(term)
       cancelAnimationFrame(resizeRaf)
       clearTimeout(suggestTimer)
       cancelReconnect()
@@ -408,11 +451,14 @@ export function TerminalTab(props: TerminalTabProps) {
   useEffect(() => {
     const term = termRef.current
     if (!term) return
+    const visualKey = `${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${settings.terminalTheme}|${uiLight}`
+    const visualChanged = prevVisualKeyRef.current !== visualKey
+    prevVisualKeyRef.current = visualKey
     let cancelled = false
-    void ensureFontLoaded(settings.fontFamily, settings.fontSize).then(() => {
+    void ensureFontLoaded(settings.fontFamily, settings.fontSize).then((newlyLoaded) => {
       if (cancelled) return
       Object.assign(term.options, termOptions(settings, uiLight))
-      term.clearTextureAtlas()
+      if (visualChanged || newlyLoaded) clearAllTextureAtlases()
       fitTerminal(term, fitRef.current, hostEl.current)
     })
     return () => {
@@ -424,6 +470,7 @@ export function TerminalTab(props: TerminalTabProps) {
     if (!active) return
     requestAnimationFrame(() => {
       fitTerminal(termRef.current, fitRef.current, hostEl.current)
+      refreshTerminalRender(termRef.current)
       termRef.current?.focus()
     })
   }, [active])
