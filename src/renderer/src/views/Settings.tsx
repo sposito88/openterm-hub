@@ -489,7 +489,7 @@ function AboutSection() {
     <div className="panel">
       <div className="setting-row">
         <div>
-          <div className="label">OpenTerm Hub 0.3.5</div>
+          <div className="label">OpenTerm Hub 0.3.6</div>
           <div className="hint">{t('aboutText')}</div>
         </div>
       </div>
