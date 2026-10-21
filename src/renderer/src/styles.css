@@ -360,6 +360,145 @@ textarea.input {
 
 /* ---- hosts -------------------------------------------------------------- */
 
+.split-btn-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.btn.split-main {
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 8px 2px 2px 8px;
+  background: var(--bg-hover);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+.btn.split-main:hover {
+  filter: brightness(1.12);
+}
+
+.btn.split-chevron {
+  width: 30px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 2px 8px 8px 2px;
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.btn.split-chevron.open,
+.btn.split-chevron:hover {
+  filter: brightness(1.18);
+}
+
+.split-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.split-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+
+.split-dropdown button svg {
+  color: var(--text-dim);
+  flex: none;
+}
+
+.split-dropdown button:hover {
+  background: var(--bg-hover);
+}
+
+.split-dropdown button:hover svg {
+  color: var(--text);
+}
+
+.btn.ghost-tool {
+  height: 32px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  font-weight: 550;
+}
+
+.btn.ghost-tool:hover {
+  background: var(--bg-hover);
+}
+
+.group-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.crumb-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.crumb-link {
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 5px;
+  font-weight: 550;
+}
+
+.crumb-link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.crumb-current {
+  color: var(--text);
+  font-weight: 650;
+  padding: 2px 4px;
+}
+
+.entity-section {
+  margin-bottom: 22px;
+}
+
+.section-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  margin: 4px 0 12px;
+}
+
 .group-title {
   color: var(--text-dim);
   font-size: 11px;
@@ -400,6 +539,13 @@ textarea.input {
   background: var(--bg-hover);
   color: var(--accent);
   font-weight: 700;
+}
+
+.card-icon.os-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: #ffffff;
 }
 
 .card-body {

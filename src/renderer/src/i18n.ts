@@ -279,7 +279,20 @@ const pt = {
   editPath: "Clique para digitar um caminho",
   newSftpTab: "Nova aba de SFTP",
   selectAll: "Selecionar tudo",
-  confirmDeleteMany: "Excluir estes {n} itens?"
+  confirmDeleteMany: "Excluir estes {n} itens?",
+  groups: "Grupos",
+  newGroup: "Novo grupo",
+  editGroup: "Editar grupo",
+  groupName: "Nome do grupo",
+  parentGroup: "Grupo pai (opcional)",
+  groupHosts: "Hosts neste grupo",
+  deleteGroupConfirm: 'Excluir o grupo "{name}"? Os hosts dentro dele continuarão salvos (sem grupo).',
+  importMenu: "Importar",
+  terminalBtn: "Terminal",
+  operatingSystem: "Sistema operacional (ícone)",
+  osAuto: "Automático (detectar ao conectar)",
+  hostSingular: "1 Host",
+  hostPlural: "{n} Hosts"
 }
 
 type Dict = typeof pt
@@ -564,7 +577,20 @@ const en: Dict = {
   editPath: "Click to type a path",
   newSftpTab: "New SFTP tab",
   selectAll: "Select all",
-  confirmDeleteMany: "Delete these {n} items?"
+  confirmDeleteMany: "Delete these {n} items?",
+  groups: "Groups",
+  newGroup: "New Group",
+  editGroup: "Edit Group",
+  groupName: "Group name",
+  parentGroup: "Parent group (optional)",
+  groupHosts: "Hosts in this group",
+  deleteGroupConfirm: 'Delete group "{name}"? Hosts inside it will be kept (ungrouped).',
+  importMenu: "Import",
+  terminalBtn: "Terminal",
+  operatingSystem: "Operating system (icon)",
+  osAuto: "Automatic (detect on connect)",
+  hostSingular: "1 Host",
+  hostPlural: "{n} Hosts"
 }
 
 const dicts = { pt, en }

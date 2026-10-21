@@ -67,6 +67,7 @@ function cleanHost(input: HostInput, store: Store): Omit<Host, 'id'> & { id?: st
     port,
     username: input.username.trim(),
     protocol: input.protocol,
+    os: input.os ?? (id ? store.host(id)?.os ?? null : null),
     hasPassword: input.password === undefined ? stored : input.password !== '',
     keyId: input.keyId || null,
     identityId: input.identityId && store.identity(input.identityId) ? input.identityId : null,
@@ -240,6 +241,8 @@ app.whenReady().then(() => {
       return host
     },
     deleteHost: (id) => store.deleteHost(id),
+    saveGroup: (name, previousName, hostIds) => store.saveGroup(name, previousName, hostIds),
+    deleteGroup: (name) => store.deleteGroup(name),
     saveIdentity: (input) => {
       const identity = store.saveIdentity(cleanIdentity(input, store))
       if (input.password !== undefined) store.setSecret(`identity:${identity.id}:password`, input.password)

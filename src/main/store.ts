@@ -17,6 +17,7 @@ import {
 
 interface Data {
   hosts: Host[]
+  groups: string[]
   identities: Identity[]
   workspaces: Workspace[]
   keys: SshKey[]
@@ -29,9 +30,18 @@ interface Data {
 
 const HISTORY_LIMIT = 2000
 
+export function normalizeGroup(name: string): string {
+  return name
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' / ')
+}
+
 function emptyData(): Data {
   return {
     hosts: [],
+    groups: [],
     identities: [],
     workspaces: [],
     keys: [],
@@ -77,7 +87,17 @@ export class Store {
     if (settings.fontFamily === "'JetBrains Mono', 'DejaVu Sans Mono', monospace") settings.fontFamily = 'JetBrains Mono'
     this.data = { ...emptyData(), ...loaded, settings }
     // Hosts saved before identities existed.
-    this.data.hosts = this.data.hosts.map((h) => ({ ...h, identityId: h.identityId ?? null }))
+    this.data.hosts = this.data.hosts.map((h) => ({
+      ...h,
+      group: normalizeGroup(h.group ?? ''),
+      os: h.os ?? null,
+      identityId: h.identityId ?? null
+    }))
+    const groupSet = new Set<string>((this.data.groups ?? []).map(normalizeGroup).filter(Boolean))
+    for (const h of this.data.hosts) {
+      if (h.group) groupSet.add(h.group)
+    }
+    this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
     this.data.workspaces = this.data.workspaces ?? []
     this.secrets = readJson<Record<string, string>>(this.secretsFile, {})
   }
@@ -115,8 +135,21 @@ export class Store {
   }
 
   snapshot(): Snapshot {
-    const { hosts, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { hosts, identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings, secureStorage: this.secureStorage }
+    const { hosts, groups, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
+    const allGroups = new Set<string>(groups ?? [])
+    for (const h of hosts) if (h.group) allGroups.add(h.group)
+    return {
+      hosts,
+      groups: [...allGroups].sort((a, b) => a.localeCompare(b)),
+      identities,
+      workspaces: workspaces ?? [],
+      keys,
+      snippets,
+      forwards,
+      knownHosts,
+      settings,
+      secureStorage: this.secureStorage
+    }
   }
 
   // ---- secrets -------------------------------------------------------------
@@ -170,7 +203,56 @@ export class Store {
   }
 
   saveHost(host: Omit<Host, 'id'> & { id?: string }): Host {
-    return this.upsert('hosts', host)
+    const normalizedGroup = normalizeGroup(host.group ?? '')
+    if (normalizedGroup && !this.data.groups.includes(normalizedGroup)) {
+      this.data.groups.push(normalizedGroup)
+      this.data.groups.sort((a, b) => a.localeCompare(b))
+    }
+    return this.upsert('hosts', { ...host, group: normalizedGroup, os: host.os ?? null })
+  }
+
+  saveGroup(name: string, previousName?: string, hostIds?: string[]): void {
+    const clean = normalizeGroup(name)
+    if (!clean) throw new Error('Informe o nome do grupo')
+    const prev = previousName ? normalizeGroup(previousName) : ''
+    const groupSet = new Set<string>(this.data.groups.map(normalizeGroup).filter(Boolean))
+    for (const h of this.data.hosts) if (h.group) groupSet.add(h.group)
+
+    if (prev && prev !== clean) {
+      const nextGroups = new Set<string>()
+      for (const g of groupSet) {
+        if (g === prev) nextGroups.add(clean)
+        else if (g.startsWith(prev + ' / ')) nextGroups.add(clean + g.slice(prev.length))
+        else nextGroups.add(g)
+      }
+      groupSet.clear()
+      for (const g of nextGroups) groupSet.add(g)
+      for (const h of this.data.hosts) {
+        if (h.group === prev) h.group = clean
+        else if (h.group.startsWith(prev + ' / ')) h.group = clean + h.group.slice(prev.length)
+      }
+    }
+
+    groupSet.add(clean)
+    if (hostIds !== undefined) {
+      const selected = new Set(hostIds)
+      for (const h of this.data.hosts) {
+        if (selected.has(h.id)) h.group = clean
+        else if (h.group === clean) h.group = ''
+      }
+    }
+    this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
+    this.commit()
+  }
+
+  deleteGroup(name: string): void {
+    const clean = normalizeGroup(name)
+    if (!clean) return
+    this.data.groups = this.data.groups.filter((g) => g !== clean && !g.startsWith(clean + ' / '))
+    for (const h of this.data.hosts) {
+      if (h.group === clean || h.group.startsWith(clean + ' / ')) h.group = ''
+    }
+    this.commit()
   }
 
   deleteHost(id: string): void {
@@ -340,8 +422,8 @@ export class Store {
 
   /** Backup without any secret (passwords, private keys). */
   exportBackup(): object {
-    const { hosts, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { format: 'openterm-hub-backup', version: 1, hosts, identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings }
+    const { hosts, groups, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
+    return { format: 'openterm-hub-backup', version: 1, hosts, groups: groups ?? [], identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings }
   }
 
   importBackup(raw: unknown): void {
@@ -358,8 +440,17 @@ export class Store {
     )
     this.data.hosts = merge(
       this.data.hosts,
-      b.hosts?.map((h) => ({ ...h, identityId: h.identityId ?? null, hasPassword: !!this.getSecret(`host:${h.id}:password`) }))
+      b.hosts?.map((h) => ({
+        ...h,
+        group: normalizeGroup(h.group ?? ''),
+        os: h.os ?? null,
+        identityId: h.identityId ?? null,
+        hasPassword: !!this.getSecret(`host:${h.id}:password`)
+      }))
     )
+    const groupSet = new Set<string>([...(this.data.groups ?? []), ...(b.groups ?? [])].map(normalizeGroup).filter(Boolean))
+    for (const h of this.data.hosts) if (h.group) groupSet.add(h.group)
+    this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
     this.data.workspaces = merge(this.data.workspaces ?? [], (b as { workspaces?: Workspace[] }).workspaces)
     this.data.keys = merge(this.data.keys, b.keys)
     this.data.snippets = merge(this.data.snippets, b.snippets)

@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import type { Host, HostInput, Protocol } from '@shared/types'
+import type { Host, HostInput, OsId, Protocol } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
+import { HostBadge, OS_LIST } from '../components/OsIcon'
 import { Check, Drawer, Field, FormActions } from '../components/ui'
 import { useT } from '../i18n'
 import { attempt, useApp } from '../state'
@@ -9,17 +10,18 @@ import { IdentityEditor } from './Identities'
 
 const DEFAULT_PORT: Record<Protocol, number> = { ssh: 22, mosh: 22, telnet: 23 }
 
-export function HostEditor({ host, onClose }: { host: Host | null; onClose(): void }) {
+export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | null; initialGroup?: string; onClose(): void }) {
   const t = useT()
   const snap = useApp((s) => s.snapshot)!
   const [form, setForm] = useState<HostInput>(() => ({
     id: host?.id,
     label: host?.label ?? '',
-    group: host?.group ?? '',
+    group: host?.group ?? initialGroup,
     hostname: host?.hostname ?? '',
     port: host?.port ?? 22,
     username: host?.username ?? '',
     protocol: host?.protocol ?? 'ssh',
+    os: host?.os ?? null,
     keyId: host?.keyId ?? null,
     identityId: host?.identityId ?? null,
     useAgent: host?.useAgent ?? true,
@@ -34,7 +36,7 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
   const [newIdentity, setNewIdentity] = useState(false)
   const identity = form.identityId ? snap.identities.find((i) => i.id === form.identityId) : undefined
   const set = <K extends keyof HostInput>(k: K, v: HostInput[K]): void => setForm((f) => ({ ...f, [k]: v }))
-  const groups = [...new Set(snap.hosts.map((h) => h.group).filter(Boolean))]
+  const groups = [...new Set([...(snap.groups ?? []), ...snap.hosts.map((h) => h.group)].filter(Boolean))].sort((a, b) => a.localeCompare(b))
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
@@ -75,6 +77,23 @@ export function HostEditor({ host, onClose }: { host: Host | null; onClose(): vo
             </datalist>
           </Field>
         </div>
+        <Field label={t('operatingSystem')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <HostBadge host={form} />
+            <select
+              className="input"
+              value={form.os ?? ''}
+              onChange={(e) => set('os', (e.target.value || null) as OsId | null)}
+            >
+              <option value="">{t('osAuto')}</option>
+              {OS_LIST.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </Field>
         <div className="row">
           <Field label={t('address')}>
             <input className="input" value={form.hostname} onChange={(e) => set('hostname', e.target.value)} required />

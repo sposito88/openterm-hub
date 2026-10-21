@@ -1,5 +1,30 @@
 export type Protocol = 'ssh' | 'mosh' | 'telnet'
 
+export type OsId =
+  | 'ubuntu'
+  | 'debian'
+  | 'redhat'
+  | 'rocky'
+  | 'alma'
+  | 'centos'
+  | 'fedora'
+  | 'alpine'
+  | 'amazon'
+  | 'arch'
+  | 'suse'
+  | 'raspbian'
+  | 'freebsd'
+  | 'openbsd'
+  | 'netbsd'
+  | 'gentoo'
+  | 'mageia'
+  | 'linux'
+  | 'windows'
+  | 'macos'
+  | 'apple'
+  | 'routeros'
+  | 'cisco'
+
 export interface Host {
   id: string
   label: string
@@ -8,6 +33,8 @@ export interface Host {
   port: number
   username: string
   protocol: Protocol
+  /** Operating system icon identifier (detected automatically on SSH connect or chosen manually). */
+  os?: OsId | null
   /** Saved password, stored encrypted on disk. Never sent back to the renderer. */
   hasPassword: boolean
   keyId: string | null
@@ -173,6 +200,7 @@ export interface Workspace {
 
 export interface Snapshot {
   hosts: Host[]
+  groups: string[]
   identities: Identity[]
   workspaces: Workspace[]
   keys: SshKey[]
@@ -290,6 +318,8 @@ export interface OpenTermApi {
   getSnapshot(): Promise<Snapshot>
   saveHost(host: HostInput): Promise<Host>
   deleteHost(id: string): Promise<void>
+  saveGroup(name: string, previousName?: string, hostIds?: string[]): Promise<void>
+  deleteGroup(name: string): Promise<void>
   saveIdentity(identity: IdentityInput): Promise<Identity>
   /** Hosts that used it keep working with the identity's username copied in. */
   deleteIdentity(id: string): Promise<void>

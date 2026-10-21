@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { Host, ImportSummary, Protocol } from '@shared/types'
+import type { Host, ImportSummary, OsId, Protocol } from '@shared/types'
 import { describeKey, importKey } from './keys'
 import type { Store } from './store'
 
@@ -11,6 +11,7 @@ import type { Store } from './store'
 export interface ImportFile {
   format: 'openterm-hub-import'
   version: 1
+  groups?: string[]
   keys?: Array<{ ref: string; label: string; privateKey: string; passphrase?: string }>
   /** Reusable logins; hosts point at them with identityRef. */
   identities?: Array<{ ref: string; label: string; username: string; password?: string; keyRef?: string }>
@@ -26,6 +27,7 @@ export interface ImportFile {
     /** When set, username, password and keyRef of the host are ignored. */
     identityRef?: string
     protocol?: Protocol
+    os?: OsId | null
     agentForward?: boolean
     jumpHostRef?: string
     snippetRef?: string
@@ -43,6 +45,10 @@ export function isImportFile(raw: unknown): raw is ImportFile {
 export function importFile(store: Store, file: ImportFile): ImportSummary {
   if (file.version !== 1) throw new Error('Versão do arquivo de importação não suportada')
   const sum: ImportSummary = { hosts: 0, identities: 0, linked: 0, keys: 0, snippets: 0, knownHosts: 0, skipped: 0, errors: [] }
+
+  for (const g of file.groups ?? []) {
+    if (g?.trim()) store.saveGroup(g)
+  }
 
   // Keys: reuse an existing key with the same fingerprint.
   const keyIds = new Map<string, string>()
@@ -143,6 +149,7 @@ export function importFile(store: Store, file: ImportFile): ImportSummary {
       port,
       username,
       protocol: h.protocol ?? 'ssh',
+      os: h.os ?? null,
       hasPassword: !!password,
       keyId: identity ? null : (h.keyRef && keyIds.get(h.keyRef)) || null,
       identityId,

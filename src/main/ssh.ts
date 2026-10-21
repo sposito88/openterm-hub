@@ -1,9 +1,49 @@
 import { createHash } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import { Client, OpenSSHAgent, type AuthenticationType, type AuthHandlerMiddleware, type ConnectConfig, type ParsedKey } from 'ssh2'
-import type { AgentKey, Host } from '@shared/types'
+import type { AgentKey, Host, OsId } from '@shared/types'
 import type { Prompts } from './prompts'
 import type { Store } from './store'
+
+const OS_PATTERNS: ReadonlyArray<[RegExp, OsId]> = [
+  [/\braspbian\b|\braspberry\s*pi\b/i, 'raspbian'],
+  [/\bubuntu\b/i, 'ubuntu'],
+  [/\bdebian\b/i, 'debian'],
+  [/\balmalinux\b|\balma\b/i, 'alma'],
+  [/\brocky\b/i, 'rocky'],
+  [/\bcentos\b/i, 'centos'],
+  [/\bfedora\b/i, 'fedora'],
+  [/\bred\s*hat\b|\brhel\b|\bredhat\b/i, 'redhat'],
+  [/\balpine\b/i, 'alpine'],
+  [/\bamazon\b|\bamzn\b/i, 'amazon'],
+  [/\barch\b|\bmanjaro\b/i, 'arch'],
+  [/\bsuse\b|\bopensuse\b|\bsles\b/i, 'suse'],
+  [/\bgentoo\b/i, 'gentoo'],
+  [/\bmageia\b/i, 'mageia'],
+  [/\bfreebsd\b/i, 'freebsd'],
+  [/\bopenbsd\b/i, 'openbsd'],
+  [/\bnetbsd\b/i, 'netbsd'],
+  [/\bdarwin\b|\bmacos\b|\bmac\s*os\b/i, 'macos'],
+  [/\bmikrotik\b|\brouteros\b/i, 'routeros'],
+  [/\bcisco\b/i, 'cisco'],
+  [/\bwindows\b|\bmsys_nt\b|\bcygwin\b|\bmingw\b|\bopenssh_for_windows\b/i, 'windows']
+]
+
+export function detectOsFromText(text: string): OsId | null {
+  if (!text) return null
+  // Prefer ID= and PRETTY_NAME= lines from /etc/os-release when present.
+  const idMatch = text.match(/^(?:ID|NAME|PRETTY_NAME|DISTRIB_ID)=["']?([^"'\r\n]+)["']?/im)
+  if (idMatch) {
+    for (const [re, os] of OS_PATTERNS) {
+      if (re.test(idMatch[1])) return os
+    }
+  }
+  for (const [re, os] of OS_PATTERNS) {
+    if (re.test(text)) return os
+  }
+  if (/\blinux\b/i.test(text)) return 'linux'
+  return null
+}
 
 export interface SshDeps {
   store: Store
@@ -256,6 +296,25 @@ export async function connectHost(deps: SshDeps, hostId: string, depth = 0): Pro
     arm()
     client.connect(config)
   })
+
+  // Auto-detect the remote operating system once when the host does not have one yet.
+  const latest = deps.store.host(hostId)
+  if (latest && !latest.os) {
+    const remoteVer = ((client as unknown as { _protocol?: { _remoteVer?: string } })._protocol?._remoteVer) ?? ''
+    const bannerOs = detectOsFromText(remoteVer)
+    if (bannerOs && bannerOs !== 'linux') {
+      deps.store.saveHost({ ...latest, os: bannerOs })
+    } else {
+      void exec(client, 'cat /etc/os-release /etc/*release 2>/dev/null; uname -s 2>/dev/null')
+        .then(({ stdout }) => {
+          const detected = detectOsFromText(stdout) ?? bannerOs
+          const cur = deps.store.host(hostId)
+          if (detected && cur && !cur.os) deps.store.saveHost({ ...cur, os: detected })
+        })
+        .catch(() => {})
+    }
+  }
+
   return client
 }
 

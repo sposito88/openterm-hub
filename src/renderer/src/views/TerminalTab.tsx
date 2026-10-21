@@ -192,13 +192,6 @@ export function TerminalTab(props: TerminalTabProps) {
   const [snippetMenu, setSnippetMenu] = useState(false)
   settingsRef.current = settings
 
-  const setPopup = (p: Popup | null): void => {
-    popupRef.current = p
-    const entry = retainedTerminals.get(paneId || tab.id)
-    if (entry) entry.ui.popup = p
-    setPopupState(p)
-  }
-
   const sKey = paneId || tab.id
   const currentEntry = retainedTerminals.get(sKey)
   if (currentEntry) {

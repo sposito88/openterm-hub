@@ -358,5 +358,27 @@ test('mergeTabs and splitTab preserve original tab IDs as pane IDs so live sessi
   )
 })
 
+test('detectOsFromText and resolveHostOs identify OS icons from SSH banners, os-release and host metadata', async () => {
+  const { detectOsFromText } = await import('../src/main/ssh')
+  const { resolveHostOs } = await import('../src/renderer/src/components/OsIcon')
+
+  assert.equal(detectOsFromText('SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10'), 'ubuntu')
+  assert.equal(detectOsFromText('SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3'), 'debian')
+  assert.equal(detectOsFromText('ID="rhel"\nNAME="Red Hat Enterprise Linux"'), 'redhat')
+  assert.equal(detectOsFromText('ID="almalinux"\nPRETTY_NAME="AlmaLinux 9.4"'), 'alma')
+  assert.equal(detectOsFromText('ID="rocky"\nNAME="Rocky Linux"'), 'rocky')
+  assert.equal(detectOsFromText('Darwin'), 'macos')
+
+  assert.equal(
+    resolveHostOs({ os: 'debian', label: 'VMHOME', hostname: '192.168.2.133', username: 'sposito', group: 'Pessoal', tags: [] }),
+    'debian'
+  )
+  assert.equal(
+    resolveHostOs({ os: null, label: 'raspberry', hostname: '192.168.2.185', username: 'pi', group: '', tags: [] }),
+    'raspbian'
+  )
+})
+
+
 
 
