@@ -111,6 +111,9 @@ function runAction(action: ShortcutAction): boolean {
     case 'settings':
       s.openSettings('terminal')
       return true
+    case 'toggleSidebar':
+      s.toggleSidebar()
+      return true
   }
   return false
 }
@@ -119,11 +122,32 @@ export function App() {
   const t = useT()
   const snapshot = useApp((s) => s.snapshot)
   const uiLight = useUiLight()
-  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab, mergeTabs, duplicateTab, splitTab, renameTab, setTabTheme, closeOtherTabs } = useApp()
+  const {
+    view,
+    tabs,
+    activeTab,
+    toasts,
+    sidebarInSession,
+    sidebarInVault,
+    setView,
+    activate,
+    closeTab,
+    openTab,
+    mergeTabs,
+    duplicateTab,
+    splitTab,
+    renameTab,
+    setTabTheme,
+    closeOtherTabs,
+    toggleSidebar
+  } = useApp()
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
   const [dropZone, setDropZone] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
   const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
   const [themeSubmenu, setThemeSubmenu] = useState(false)
+
+  const isSidebarOpen = activeTab === null ? sidebarInVault : sidebarInSession
+  const isSidebarHidden = !isSidebarOpen
 
   useEffect(() => {
     void useApp.getState().refresh()
@@ -161,7 +185,7 @@ export function App() {
   const Page = VIEWS[view]
 
   return (
-    <div className="app">
+    <div className={`app ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
       <div className="brand">
         <div className="brand-mark">&gt;_</div>
         OpenTerm Hub
@@ -245,6 +269,14 @@ export function App() {
             </div>
           )
         })}
+        <div className="tabbar-spacer" />
+        <button
+          className={`tabbar-action-btn ${isSidebarOpen ? 'active' : ''}`}
+          onClick={toggleSidebar}
+          title={t('toggleSidebar')}
+        >
+          <Icon name="sidebar" size={16} />
+        </button>
       </div>
 
       <nav className="sidebar">

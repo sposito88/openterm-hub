@@ -469,3 +469,28 @@ test('SFTP transfer cancellation aborts controller and removes from active trans
   assert.equal(progressEvents[0].payload.error, 'Transferência cancelada')
 })
 
+test('sidebar auto-hides when terminal tab opens and can be toggled', async () => {
+  const { useApp } = await import('../src/renderer/src/state')
+  useApp.setState({ tabs: [], activeTab: null, sidebarInSession: false, sidebarInVault: true })
+
+  // In vault, sidebarInVault is true
+  assert.equal(useApp.getState().sidebarInVault, true)
+
+  // Opening a terminal tab sets activeTab and ensures sidebarInSession is false
+  useApp.getState().openTab('terminal', 'Local', { kind: 'local' })
+  assert.equal(useApp.getState().sidebarInSession, false)
+  assert.notEqual(useApp.getState().activeTab, null)
+
+  // Toggle in session flips sidebarInSession
+  useApp.getState().toggleSidebar()
+  assert.equal(useApp.getState().sidebarInSession, true)
+
+  useApp.getState().toggleSidebar()
+  assert.equal(useApp.getState().sidebarInSession, false)
+
+  // Return to vault
+  useApp.getState().activate(null)
+  assert.equal(useApp.getState().activeTab, null)
+  assert.equal(useApp.getState().sidebarInVault, true)
+})
+

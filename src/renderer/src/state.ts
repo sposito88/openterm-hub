@@ -54,6 +54,9 @@ interface AppState {
   hostKeyPrompts: HostKeyPrompt[]
   credentialPrompts: CredentialPrompt[]
   toasts: Toast[]
+  sidebarInSession: boolean
+  sidebarInVault: boolean
+  toggleSidebar(): void
   refresh(): Promise<void>
   setView(v: View): void
   openSettings(section: SettingsSection): void
@@ -90,6 +93,15 @@ export const useApp = create<AppState>((set, get) => ({
   hostKeyPrompts: [],
   credentialPrompts: [],
   toasts: [],
+  sidebarInSession: false,
+  sidebarInVault: true,
+
+  toggleSidebar: () =>
+    set((s) =>
+      s.activeTab === null
+        ? { sidebarInVault: !s.sidebarInVault }
+        : { sidebarInSession: !s.sidebarInSession }
+    ),
 
   refresh: async () => set({ snapshot: await api.getSnapshot() }),
   setView: (view) => set({ view, activeTab: null }),
@@ -100,6 +112,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({
       tabs: [...s.tabs, { id, kind, title, target, themeOverride }],
       activeTab: id,
+      sidebarInSession: false,
       lastTerminal: kind === 'terminal' ? id : s.lastTerminal
     }))
   },
@@ -118,6 +131,7 @@ export const useApp = create<AppState>((set, get) => ({
           themeOverride: tab.themeOverride
         }],
         activeTab: id,
+        sidebarInSession: false,
         lastTerminal: tab.kind === 'terminal' ? id : s.lastTerminal
       }))
     } else if (tab.kind === 'workspace') {
@@ -185,6 +199,7 @@ export const useApp = create<AppState>((set, get) => ({
         splitRatio: 50
       }],
       activeTab: id,
+      sidebarInSession: false,
       lastTerminal: id
     }))
   },

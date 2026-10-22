@@ -9,7 +9,8 @@ export const SHORTCUT_ACTIONS = [
   'nextTab', 'prevTab', 'closeTab',
   'copy', 'paste', 'selectAll', 'find',
   'fontBigger', 'fontSmaller', 'fontReset',
-  'openHosts', 'localTerminal', 'serial', 'portForwarding', 'snippets', 'sftp', 'settings'
+  'openHosts', 'localTerminal', 'serial', 'portForwarding', 'snippets', 'sftp', 'settings',
+  'toggleSidebar'
 ] as const
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number]
@@ -40,7 +41,8 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   portForwarding: 'Ctrl+Shift+P',
   snippets: 'Ctrl+Shift+S',
   sftp: 'Ctrl+Shift+O',
-  settings: 'Ctrl+,'
+  settings: 'Ctrl+,',
+  toggleSidebar: 'Ctrl+Shift+B'
 }
 
 const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'AltGraph', 'CapsLock'])
