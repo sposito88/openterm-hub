@@ -19,6 +19,28 @@ index bb495d1..f2134a2 100644
                binaryParser.clear();
  
                if (signature === undefined)
+diff --git a/node_modules/ssh2/lib/keygen.js b/node_modules/ssh2/lib/keygen.js
+index 570c90e..f698017 100644
+--- a/node_modules/ssh2/lib/keygen.js
++++ b/node_modules/ssh2/lib/keygen.js
+@@ -288,13 +288,10 @@ function parseDERs(keyType, pub, priv) {
+       // - Attributes (absent for ED25519)
+ 
+       let pubBin = reader.readString(Ber.BitString, true);
+-      {
+-        // Remove leading zero bytes
+-        let i = 0;
+-        for (; i < pubBin.length && pubBin[i] === 0x00; ++i);
+-        if (i > 0)
+-          pubBin = pubBin.slice(i);
+-      }
++      // Drop only the "unused bits" byte: the 32-byte key itself may start
++      // with 0x00, and stripping it too corrupts 1 in 256 generated keys.
++      if (pubBin.length === 33 && pubBin[0] === 0x00)
++        pubBin = pubBin.slice(1);
+ 
+       // Parse private key
+       reader = new Ber.Reader(priv);
 diff --git a/node_modules/ssh2/lib/protocol/Protocol.js b/node_modules/ssh2/lib/protocol/Protocol.js
 index 7302488..b8ae1d1 100644
 --- a/node_modules/ssh2/lib/protocol/Protocol.js

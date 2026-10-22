@@ -105,3 +105,16 @@ test('identities are shared, de-duplicated and link hosts imported before', () =
   assert.equal(api.identityId, web.identityId)
   assert.deepEqual(store.credentials(api), { username: 'deploy', password: 's3cret', keyId: null })
 })
+
+test('generated ed25519 keys stay valid when the public key starts with 0x00', () => {
+  // ssh2 used to strip every leading zero of the DER bit string, corrupting 1 in 256 keys.
+  let leadingZero = 0
+  for (let i = 0; i < 4000; i++) {
+    const pair = utils.generateKeyPairSync('ed25519')
+    const blob = Buffer.from(pair.public.split(' ')[1], 'base64')
+    assert.equal(blob.length, 51, 'string "ssh-ed25519" + string with the 32-byte key')
+    if (blob[19] === 0x00) leadingZero++
+    assert.ok(!(utils.parseKey(pair.private) instanceof Error), 'private key parses')
+  }
+  assert.ok(leadingZero > 0, 'the loop covered keys that start with 0x00')
+})
