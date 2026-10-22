@@ -4,7 +4,7 @@
 [![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-3ddc97)](LICENSE)
 [![Plataformas](https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-161920)](#instalar)
 
-Cliente SSH de desktop, open source (MIT), feito com Electron. Organiza seus hosts, abre terminais em abas, transfere arquivos por SFTP, cria túneis e sugere comandos enquanto você digita.
+Cliente SSH de desktop, open source (MIT), feito com Electron. Organiza seus hosts, abre terminais em abas, transfere arquivos por SFTP, cria túneis, sugere comandos enquanto você digita, automatiza o login e sincroniza seu cofre com criptografia de ponta a ponta.
 
 *English summary at the end.*
 
@@ -48,7 +48,7 @@ Os binários ainda não são assinados. Na primeira execução:
 Detalhes em [BUILDING.md](BUILDING.md).
 
 
-![Autocomplete no terminal](docs/screenshots/autocomplete.png)
+![Terminal com autocomplete e o painel de histórico, que sugere salvar os comandos mais usados como snippets](docs/screenshots/history-panel.png)
 
 ## Funcionalidades
 
@@ -74,10 +74,13 @@ Detalhes em [BUILDING.md](BUILDING.md).
 | **Migração** | Importa hosts, senhas, chaves, snippets e known hosts de um arquivo JSON documentado ([docs/IMPORT.md](docs/IMPORT.md)), além do `~/.ssh/config`. |
 | **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup em JSON (sem segredos). |
 
-<p>
-  <img src="docs/screenshots/host-key.png" width="49%" alt="Confirmação da chave do servidor">
-  <img src="docs/screenshots/port-forwarding.png" width="49%" alt="Port forwarding">
-</p>
+## Em imagens
+
+| | |
+|---|---|
+| ![Snippet perguntando a versão antes de rodar](docs/screenshots/snippet-ask.png)<br>**Snippets com variáveis:** `{{ask:Versão?=latest}}` pergunta na hora; `{{registry}}` vem das variáveis globais. | ![Editor do host com sequência de login, proxy e comandos locais](docs/screenshots/host-automation.png)<br>**Automação do login:** passos "quando aparecer X, digite Y", senha do sudo, proxy SOCKS5 e a VPN que sobe antes de conectar. |
+| ![Configurações de sincronização com a pasta do Nextcloud](docs/screenshots/sync.png)<br>**Sincronização cifrada:** o cofre vai para uma pasta que você já sincroniza; sem a senha, ninguém lê. | ![Cofre com hosts em grupos e ícone do sistema operacional](docs/screenshots/hosts.png)<br>**Cofre:** hosts em grupos, ícone do sistema detectado ao conectar e os mais recentes primeiro. |
+| ![Confirmação da chave do servidor](docs/screenshots/host-key.png)<br>**Chave do servidor:** confirmada na primeira conexão, com alerta se mudar. | ![Port forwarding](docs/screenshots/port-forwarding.png)<br>**Port forwarding:** túneis local, remoto e SOCKS5. |
 
 ## Rodar a partir do código
 
@@ -159,6 +162,8 @@ OpenTerm Hub is an open source (MIT) desktop SSH client built with Electron. It 
 - login sequences ("when X shows up, type Y"), optional automatic sudo password and local commands run before/after connecting (VPN, wake-on-LAN);
 - snippets with variables ({{host}}, {{date}}, globals and {{ask:…}});
 - optional end-to-end encrypted sync through any folder you already sync (AES-256-GCM, scrypt);
+- a history panel beside the terminal that offers your most used commands as snippets;
+- Linux ARM64 packages;
 - inline command autocomplete powered by the Fig specs, your history and your snippets.
 
 Install with `curl -fsSL https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.sh | sh` (Linux/macOS) or `irm https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.ps1 | iex` (Windows PowerShell); downloads are checked against the release SHA256SUMS. From source: `npm install && npm run dev`; `npm test` runs the test suite. UI languages: Portuguese and English.
