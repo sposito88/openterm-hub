@@ -17,7 +17,7 @@ import { Prompts } from './prompts'
 import { listAgentKeys } from './ssh'
 import { Sessions } from './sessions'
 import { launch, localHome, localList, Sftp, splitCommand, type Opener } from './sftp'
-import { loadShellHistory } from './shellHistory'
+import { historyOverview, loadShellHistory, type ShellHistory } from './shellHistory'
 import { parseJump, parseSshConfig } from './sshconfig'
 import { Store } from './store'
 import { Sync } from './sync'
@@ -263,9 +263,9 @@ app.whenReady().then(() => {
   }
 
   // Local shell history (bash/zsh/fish) feeds the autocomplete when enabled.
-  let shellHistory: string[] = []
+  let shellHistory: ShellHistory = { commands: [], counts: new Map() }
   const reloadShellHistory = (): void => {
-    if (!store.settings().importShellHistory) shellHistory = []
+    if (!store.settings().importShellHistory) shellHistory = { commands: [], counts: new Map() }
     else void loadShellHistory().then((h) => (shellHistory = h))
   }
   reloadShellHistory()
@@ -433,8 +433,20 @@ app.whenReady().then(() => {
       return res.canceled ? null : res.filePaths[0]
     },
     // App history goes last so it ranks above the imported shell history.
-    suggest: (line) => suggest(line, specs, [...shellHistory, ...store.history()], store.snippets()),
-    recordHistory: (line) => store.recordHistory(line),
+    suggest: (line) => {
+      const hidden = store.hiddenHistory()
+      const history = [...shellHistory.commands, ...store.history()].filter((c) => !hidden.has(c))
+      return suggest(line, specs, history, store.snippets())
+    },
+    recordHistory: (line) => {
+      store.recordHistory(line)
+      send('history:changed')
+    },
+    commandHistory: () => historyOverview(store.history(), store.historyCounts(), shellHistory, store.hiddenHistory()),
+    forgetCommand: (command) => {
+      store.forgetCommand(command)
+      send('history:changed')
+    },
     answerHostKey: (promptId, accept) => prompts.answer(promptId, accept),
     answerCredential: (promptId, values) => prompts.answer(promptId, values),
     openExternal: (url) => {

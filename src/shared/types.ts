@@ -195,6 +195,8 @@ export interface Settings {
   /** Folder (Nextcloud, Syncthing, Dropbox, Git…) holding the end-to-end encrypted vault. */
   syncFolder: string
   syncEnabled: boolean
+  /** The "save your top commands as snippets" tip was closed while showing these. */
+  historyTipDismissed: string[]
 }
 
 export interface SnippetVariable {
@@ -235,7 +237,8 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   variables: [],
   syncFolder: '',
-  syncEnabled: false
+  syncEnabled: false,
+  historyTipDismissed: []
 }
 
 export interface LogEntry {
@@ -353,6 +356,13 @@ export interface CredentialPrompt {
   instructions?: string
   /** value: pre-filled answer. */
   fields: { label: string; secret: boolean; value?: string }[]
+}
+
+export interface CommandHistory {
+  /** Most recent first: commands typed in the app, then the local shells' history. */
+  recent: string[]
+  /** Most used first (twice or more), trivial ones such as "ls" left out. */
+  frequent: Array<{ command: string; count: number }>
 }
 
 export interface Suggestion {
@@ -474,6 +484,9 @@ export interface OpenTermApi {
 
   suggest(line: string): Promise<Suggestion[]>
   recordHistory(line: string): void
+  commandHistory(): Promise<CommandHistory>
+  /** Removes a command from the history panel and the autocomplete (the shells' own files are left untouched). */
+  forgetCommand(command: string): Promise<void>
 
   answerHostKey(promptId: string, accept: boolean): void
   answerCredential(promptId: string, values: string[] | null): void
@@ -493,4 +506,5 @@ export interface OpenTermApi {
   /** A remote file opened with "Open with" was saved and uploaded again. */
   onSftpSynced(cb: (name: string, error?: string) => void): () => void
   onSyncStatus(cb: (s: SyncStatus) => void): () => void
+  onHistoryChanged(cb: () => void): () => void
 }

@@ -8,6 +8,7 @@ import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import type { SessionTarget, Settings, Suggestion } from '@shared/types'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
+import { SidePanel } from '../components/SidePanel'
 import { ensureFontLoaded, fontStack } from '../fonts'
 import { translate, useT } from '../i18n'
 import { LineTracker, trimTrailingSpaces } from '../lineTracker'
@@ -71,6 +72,8 @@ interface RetainedTerminal {
   ui: TerminalUiBridge
   accept(s: Suggestion): void
   paste(): void
+  /** Types into the session as if from the keyboard (autocomplete and history stay in step). */
+  input(data: string): void
   getSessionId(): string | null
   disposeTimer?: ReturnType<typeof setTimeout>
   dispose(): void
@@ -191,6 +194,9 @@ export function TerminalTab(props: TerminalTabProps) {
   const popupRef = useRef<Popup | null>(null)
   const acceptRef = useRef<(s: Suggestion) => void>(() => {})
   const pasteRef = useRef<(() => void) | null>(null)
+  const inputRef = useRef<((data: string) => void) | null>(null)
+  const sidePanel = useApp((s) => s.sidePanel)
+  const setSidePanel = useApp((s) => s.setSidePanel)
   const [popup, setPopupState] = useState<Popup | null>(null)
   const [searching, setSearching] = useState(false)
   const [snippetMenu, setSnippetMenu] = useState(false)
@@ -468,6 +474,7 @@ export function TerminalTab(props: TerminalTabProps) {
         ui,
         accept,
         paste,
+        input: sendInput,
         getSessionId: () => sessionId,
         dispose: () => {
           disposed = true
@@ -487,7 +494,8 @@ export function TerminalTab(props: TerminalTabProps) {
       void connect()
     }
 
-    const { term, fit, search, accept, paste, ui } = entry
+    const { term, fit, search, accept, paste, input, ui } = entry
+    inputRef.current = input
     ui.hostEl = hostEl.current
     ui.wrapEl = wrapEl.current
     ui.setPopup = (p: Popup | null) => {
@@ -764,8 +772,17 @@ export function TerminalTab(props: TerminalTabProps) {
             <Icon name="folder" /> {t('sftp')}
           </button>
         )}
+        <button
+          className={`btn small ${sidePanel === 'history' ? 'active' : ''}`}
+          style={{ marginLeft: 'auto' }}
+          title={t('historyPanelHint')}
+          onClick={() => setSidePanel(sidePanel === 'history' ? null : 'history')}
+        >
+          <Icon name="clock" /> {t('history')}
+        </button>
       </div>
       )}
+      <div className="term-body">
       <div className="term-wrap" ref={wrapEl} style={{ background: termBg }}>
         <div className="term-host" ref={hostEl} />
         {searching && (
@@ -807,6 +824,19 @@ export function TerminalTab(props: TerminalTabProps) {
             ))}
           </div>
         )}
+      </div>
+      {sidePanel && !showPaneHeader && (
+        <SidePanel
+          kind={sidePanel}
+          tabId={tab.id}
+          onKind={setSidePanel}
+          onClose={() => setSidePanel(null)}
+          onType={(text, run) => {
+            inputRef.current?.(run ? text + '\r' : text)
+            termRef.current?.focus()
+          }}
+        />
+      )}
       </div>
       {termContextMenu && (
         <div

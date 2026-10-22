@@ -56,6 +56,9 @@ interface AppState {
   toasts: Toast[]
   sidebarInSession: boolean
   sidebarInVault: boolean
+  /** Snippets or history panel beside the terminals; null = closed. */
+  sidePanel: 'snippets' | 'history' | null
+  setSidePanel(p: 'snippets' | 'history' | null): void
   toggleSidebar(): void
   refresh(): Promise<void>
   setView(v: View): void
@@ -78,6 +81,17 @@ interface AppState {
 }
 
 let tabSeq = 0
+
+const SIDE_PANEL_KEY = 'openterm.sidePanel'
+
+function readSidePanel(): 'snippets' | 'history' | null {
+  try {
+    const v = localStorage.getItem(SIDE_PANEL_KEY)
+    return v === 'snippets' || v === 'history' ? v : null
+  } catch {
+    return null
+  }
+}
 let toastSeq = 0
 
 export const useApp = create<AppState>((set, get) => ({
@@ -95,6 +109,16 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   sidebarInSession: false,
   sidebarInVault: true,
+  sidePanel: readSidePanel(),
+  setSidePanel: (sidePanel) => {
+    // A per-computer convenience: losing it (private mode, blocked storage) is harmless.
+    try {
+      localStorage.setItem(SIDE_PANEL_KEY, sidePanel ?? '')
+    } catch {
+      /* ignore */
+    }
+    set({ sidePanel })
+  },
 
   toggleSidebar: () =>
     set((s) =>

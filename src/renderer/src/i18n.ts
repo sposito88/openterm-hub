@@ -348,7 +348,16 @@ const pt = {
   syncNow: "Sincronizar agora",
   syncing: "Sincronizando…",
   lastSync: "Última sincronização",
-  syncOff: "Desativada"
+  syncOff: "Desativada",
+  history: "Histórico",
+  historyPanelHint: "Comandos usados neste app e no seu shell",
+  historyTip: "Salve seus 3 comandos mais usados como snippets e rode com um clique",
+  historyItemHint: "Clique para digitar no terminal; ▶ executa",
+  noHistory: "Nenhum comando ainda",
+  saveAsSnippet: "Salvar como snippet",
+  forgetCommand: "Remover do histórico",
+  snippetSaved: "Snippet salvo",
+  snippetsSaved: "{n} snippets salvos"
 }
 
 type Dict = typeof pt
@@ -702,7 +711,16 @@ const en: Dict = {
   syncNow: "Sync now",
   syncing: "Syncing…",
   lastSync: "Last sync",
-  syncOff: "Off"
+  syncOff: "Off",
+  history: "History",
+  historyPanelHint: "Commands used in this app and in your shell",
+  historyTip: "Save your top 3 commands as snippets to run them in one click",
+  historyItemHint: "Click to type it in the terminal; ▶ runs it",
+  noHistory: "No commands yet",
+  saveAsSnippet: "Save as snippet",
+  forgetCommand: "Remove from history",
+  snippetSaved: "Snippet saved",
+  snippetsSaved: "{n} snippets saved"
 }
 
 const dicts = { pt, en }

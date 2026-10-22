@@ -137,6 +137,26 @@ test('shell history parsers', async () => {
   assert.deepEqual(parseFish('- cmd: ls\n  when: 1\n- cmd: echo a\\\\nb\n'), ['ls', 'echo a\\nb'])
 })
 
+test('history panel: app commands first, shell history after, most used offered as snippets', async () => {
+  const { historyOverview, loadShellHistory } = await import('../src/main/shellHistory')
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = mkdtempSync(join(tmpdir(), 'oth-hist-'))
+  writeFileSync(join(home, '.bash_history'), 'cd VPS/\nls\ncd VPS/\nscp -r app root@host:/srv\nls\nscp -r app root@host:/srv\ncd VPS/\nsecret-cmd\n')
+  const shell = await loadShellHistory(home)
+  assert.deepEqual(shell.commands, ['ls', 'scp -r app root@host:/srv', 'cd VPS/', 'secret-cmd'])
+  assert.equal(shell.counts.get('cd VPS/'), 3)
+  const h = historyOverview(['docker ps', 'git pull'], { 'git pull': 4, 'docker ps': 1 }, shell, new Set(['secret-cmd']))
+  assert.deepEqual(h.recent, ['git pull', 'docker ps', 'cd VPS/', 'scp -r app root@host:/srv', 'ls'])
+  // "ls" is too trivial and single uses are not habits.
+  assert.deepEqual(h.frequent, [
+    { command: 'git pull', count: 4 },
+    { command: 'cd VPS/', count: 3 },
+    { command: 'scp -r app root@host:/srv', count: 2 }
+  ])
+})
+
 test('open-with commands are split without a shell', async () => {
   const { splitCommand } = await import('../src/main/sftp')
   assert.deepEqual(splitCommand('code --wait'), ['code', '--wait'])

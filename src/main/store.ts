@@ -27,6 +27,10 @@ interface Data {
   knownHosts: KnownHost[]
   settings: Settings
   history: string[]
+  /** How many times each command in history was run from the app. */
+  historyCounts: Record<string, number>
+  /** Commands the user removed from the history panel; also hides them from the shells' history. */
+  hiddenHistory: string[]
   /** Deleted item id → when (ms), so a synced device does not bring it back. */
   deleted: Record<string, number>
 }
@@ -55,6 +59,8 @@ function emptyData(): Data {
     knownHosts: [],
     settings: { ...DEFAULT_SETTINGS },
     history: [],
+    historyCounts: {},
+    hiddenHistory: [],
     deleted: {}
   }
 }
@@ -108,6 +114,8 @@ export class Store {
     this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
     this.data.workspaces = this.data.workspaces ?? []
     this.data.deleted = this.data.deleted ?? {}
+    this.data.historyCounts = this.data.historyCounts ?? {}
+    this.data.hiddenHistory = this.data.hiddenHistory ?? []
     this.secrets = readJson<Record<string, string>>(this.secretsFile, {})
   }
 
@@ -459,13 +467,36 @@ export class Store {
     return this.data.history
   }
 
+  hiddenHistory(): ReadonlySet<string> {
+    return new Set(this.data.hiddenHistory)
+  }
+
+  historyCounts(): Record<string, number> {
+    return this.data.historyCounts
+  }
+
   recordHistory(line: string): void {
     const trimmed = line.trim()
     if (!trimmed) return
     const h = this.data.history.filter((x) => x !== trimmed)
     h.push(trimmed)
     this.data.history = h.slice(-HISTORY_LIMIT)
+    const counts = this.data.historyCounts
+    counts[trimmed] = (counts[trimmed] ?? 0) + 1
+    if (h.length > HISTORY_LIMIT) {
+      const kept = new Set(this.data.history)
+      for (const cmd of Object.keys(counts)) if (!kept.has(cmd)) delete counts[cmd]
+    }
+    // Typed again after being removed: the user wants it back.
+    this.data.hiddenHistory = this.data.hiddenHistory.filter((x) => x !== trimmed)
     // History changes on every command; persist without notifying the UI.
+    writeJson(this.dataFile, this.data)
+  }
+
+  forgetCommand(command: string): void {
+    this.data.history = this.data.history.filter((x) => x !== command)
+    delete this.data.historyCounts[command]
+    if (!this.data.hiddenHistory.includes(command)) this.data.hiddenHistory.push(command)
     writeJson(this.dataFile, this.data)
   }
 

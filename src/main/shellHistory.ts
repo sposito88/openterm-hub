@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { CommandHistory } from '@shared/types'
 
 const MAX_LINES = 5000
 
@@ -35,11 +36,15 @@ export function parseFish(text: string): string[] {
   return out
 }
 
-/**
- * Commands from the local shells' history files, oldest first, without
- * duplicates or multi-line entries (those are not useful as suggestions).
- */
-export async function loadShellHistory(home = homedir()): Promise<string[]> {
+export interface ShellHistory {
+  /** Oldest first, without duplicates or multi-line entries (not useful as suggestions). */
+  commands: string[]
+  /** How many times each command appears in the files (the shells keep repeats). */
+  counts: Map<string, number>
+}
+
+/** Commands from the local shells' history files (bash, zsh, fish). */
+export async function loadShellHistory(home = homedir()): Promise<ShellHistory> {
   const sources: Array<[string, (t: string) => string[]]> = [
     [join(home, '.bash_history'), parseBash],
     [join(home, '.zsh_history'), parseZsh],
@@ -50,6 +55,11 @@ export async function loadShellHistory(home = homedir()): Promise<string[]> {
     const text = await fs.readFile(file, 'utf8').catch(() => '')
     if (text) all.push(...parse(text))
   }
+  const counts = new Map<string, number>()
+  for (const raw of all) {
+    const cmd = raw.trim()
+    if (cmd && !cmd.includes('\n')) counts.set(cmd, (counts.get(cmd) ?? 0) + 1)
+  }
   const seen = new Set<string>()
   const out: string[] = []
   for (let i = all.length - 1; i >= 0 && out.length < MAX_LINES; i--) {
@@ -58,5 +68,40 @@ export async function loadShellHistory(home = homedir()): Promise<string[]> {
     seen.add(cmd)
     out.push(cmd)
   }
-  return out.reverse()
+  return { commands: out.reverse(), counts }
+}
+
+/** Too short or too common to be worth a snippet. */
+const TRIVIAL = new Set(['ls', 'll', 'la', 'l', 'cd', 'cd ..', 'cd ~', 'clear', 'cls', 'exit', 'pwd', 'history', 'top', 'htop', 'whoami'])
+
+/**
+ * The history panel's data: commands typed in the app (most recent first),
+ * then the shells' own, and the most used ones across both, which are offered
+ * as snippets. Hidden commands (removed by the user) never show up.
+ */
+export function historyOverview(
+  app: string[],
+  appCounts: Record<string, number>,
+  shell: ShellHistory,
+  hidden: ReadonlySet<string>,
+  limit = 500
+): CommandHistory {
+  const recent: string[] = []
+  const seen = new Set<string>()
+  for (const list of [app, shell.commands]) {
+    for (let i = list.length - 1; i >= 0 && recent.length < limit; i--) {
+      const cmd = list[i]
+      if (seen.has(cmd) || hidden.has(cmd)) continue
+      seen.add(cmd)
+      recent.push(cmd)
+    }
+  }
+  const counts = new Map(shell.counts)
+  for (const [cmd, n] of Object.entries(appCounts)) counts.set(cmd, (counts.get(cmd) ?? 0) + n)
+  const frequent = [...counts]
+    .filter(([cmd, n]) => n >= 2 && !hidden.has(cmd) && !TRIVIAL.has(cmd) && cmd.length >= 3)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 20)
+    .map(([command, count]) => ({ command, count }))
+  return { recent, frequent }
 }
