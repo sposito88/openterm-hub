@@ -25,6 +25,28 @@ export type OsId =
   | 'routeros'
   | 'cisco'
 
+/** One step of a login sequence: when the output shows `expect`, type `send` and Enter. */
+export interface LoginStep {
+  id: string
+  /** Text to wait for (case insensitive), or a regular expression between slashes: /^\$ $/m. Empty = the first output. */
+  expect: string
+  /** {{password}} and {{user}} become the host's login. Empty on secret steps, whose answer is stored encrypted. */
+  send: string
+  secret: boolean
+}
+
+export type ProxyType = 'socks5' | 'http'
+
+/** Proxy used to reach the host (the first hop when there is a jump host). */
+export interface ProxyConfig {
+  type: ProxyType
+  host: string
+  port: number
+  username: string
+  /** The password is stored encrypted and never sent to the renderer. */
+  hasPassword: boolean
+}
+
 export interface Host {
   id: string
   label: string
@@ -48,12 +70,26 @@ export interface Host {
   startupSnippetId: string | null
   tags: string[]
   lastConnectedAt?: number | null
+  /** Answers typed automatically after connecting (sudo su, bastion menus, enable on switches). */
+  loginSteps?: LoginStep[]
+  /** Answers "[sudo] password for …" with the host's password. */
+  autoSudo?: boolean
+  proxy?: ProxyConfig | null
+  /** Commands run on this computer before connecting and after the last session ends. */
+  localBefore?: string
+  localAfter?: string
+  /** Last change (ms), used to merge synced vaults. */
+  updatedAt?: number
 }
 
 export interface HostInput extends Omit<Host, 'id' | 'hasPassword'> {
   id?: string
   /** undefined = keep the stored password, '' = remove it */
   password?: string
+  /** Same rule for the proxy password. */
+  proxyPassword?: string
+  /** Answers of secret login steps typed in this edit, by step id (absent = keep). */
+  stepSecrets?: Record<string, string>
 }
 
 /** A login (username + password and/or key) shared by many hosts. */
@@ -64,6 +100,7 @@ export interface Identity {
   /** The password is stored encrypted and never sent to the renderer. */
   hasPassword: boolean
   keyId: string | null
+  updatedAt?: number
 }
 
 export interface IdentityInput extends Omit<Identity, 'id' | 'hasPassword'> {
@@ -79,12 +116,15 @@ export interface SshKey {
   publicKey: string
   fingerprint: string
   hasPassphrase: boolean
+  updatedAt?: number
 }
 
 export interface Snippet {
   id: string
   label: string
+  /** May contain variables: {{host}}, {{ask:Question=default}}, … (see shared/snippetVars). */
   script: string
+  updatedAt?: number
 }
 
 export type ForwardKind = 'local' | 'remote' | 'dynamic'
@@ -99,6 +139,7 @@ export interface ForwardRule {
   /** Unused for dynamic (SOCKS5) forwarding. */
   destHost: string
   destPort: number
+  updatedAt?: number
 }
 
 export interface KnownHost {
@@ -149,6 +190,26 @@ export interface Settings {
   fileAssociations: FileAssociation[]
   /** Action id → key combination ("Ctrl+Shift+W"); '' disables the shortcut. */
   shortcuts: Record<string, string>
+  /** Global snippet variables: {{name}} is replaced by value. */
+  variables: SnippetVariable[]
+  /** Folder (Nextcloud, Syncthing, Dropbox, Git…) holding the end-to-end encrypted vault. */
+  syncFolder: string
+  syncEnabled: boolean
+}
+
+export interface SnippetVariable {
+  name: string
+  value: string
+}
+
+export interface SyncStatus {
+  enabled: boolean
+  folder: string
+  hasPassphrase: boolean
+  busy: boolean
+  /** Last successful sync (ms). */
+  lastSync?: number
+  error?: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -171,7 +232,10 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionLogging: false,
   sftpShowHidden: true,
   fileAssociations: [],
-  shortcuts: {}
+  shortcuts: {},
+  variables: [],
+  syncFolder: '',
+  syncEnabled: false
 }
 
 export interface LogEntry {
@@ -199,6 +263,7 @@ export interface Workspace {
   label: string
   layout: 'horizontal' | 'vertical'
   panes: WorkspacePane[]
+  updatedAt?: number
 }
 
 export interface Snapshot {
@@ -286,7 +351,8 @@ export interface CredentialPrompt {
   promptId: string
   title: string
   instructions?: string
-  fields: { label: string; secret: boolean }[]
+  /** value: pre-filled answer. */
+  fields: { label: string; secret: boolean; value?: string }[]
 }
 
 export interface Suggestion {
@@ -354,6 +420,8 @@ export interface OpenTermApi {
   importBackup(): Promise<ImportSummary | 'backup' | null>
 
   openSession(target: SessionTarget, cols: number, rows: number): Promise<SessionInfo>
+  /** Types a snippet with its variables filled in ({{ask:…}} asks first); false when cancelled. */
+  runSnippet(sessionId: string, snippetId: string): Promise<boolean>
   writeSession(id: string, data: string): void
   resizeSession(id: string, cols: number, rows: number): void
   closeSession(id: string): void
@@ -397,6 +465,13 @@ export interface OpenTermApi {
   /** Keys in the system ssh-agent; empty when no agent is running. */
   listAgentKeys(): Promise<AgentKey[]>
 
+  syncStatus(): Promise<SyncStatus>
+  /** Turns sync on with this folder; passphrase undefined = keep the saved one. */
+  enableSync(folder: string, passphrase?: string): Promise<SyncStatus>
+  disableSync(): Promise<SyncStatus>
+  syncNow(): Promise<SyncStatus>
+  pickFolder(): Promise<string | null>
+
   suggest(line: string): Promise<Suggestion[]>
   recordHistory(line: string): void
 
@@ -417,4 +492,5 @@ export interface OpenTermApi {
   onLogsChanged(cb: () => void): () => void
   /** A remote file opened with "Open with" was saved and uploaded again. */
   onSftpSynced(cb: (name: string, error?: string) => void): () => void
+  onSyncStatus(cb: (s: SyncStatus) => void): () => void
 }

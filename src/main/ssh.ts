@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import { Client, OpenSSHAgent, type AuthenticationType, type AuthHandlerMiddleware, type ConnectConfig, type ParsedKey } from 'ssh2'
 import type { AgentKey, Host, OsId } from '@shared/types'
+import type { LocalHooks } from './localCommand'
 import type { Prompts } from './prompts'
+import { proxyConnect } from './proxy'
 import type { Store } from './store'
 
 const OS_PATTERNS: ReadonlyArray<[RegExp, OsId]> = [
@@ -48,6 +50,8 @@ export function detectOsFromText(text: string): OsId | null {
 export interface SshDeps {
   store: Store
   prompts: Prompts
+  /** The hosts' local before/after commands (absent in tests that do not need them). */
+  hooks?: LocalHooks
 }
 
 const MAX_JUMP_DEPTH = 5
@@ -211,22 +215,32 @@ export async function connectHost(deps: SshDeps, hostId: string, depth = 0): Pro
   if (!host) throw new Error('Host não encontrado')
   if (depth > MAX_JUMP_DEPTH) throw new Error('Cadeia de jump hosts muito longa (possível ciclo)')
 
+  // The host's "before" command (VPN, wake-on-LAN) runs ahead of everything, the jump host included.
+  const release = (await deps.hooks?.acquire(host, deps.store.credentials(host).username)) ?? (() => {})
   let jump: Client | undefined
   let sock: Duplex | undefined
-  if (host.jumpHostId) {
-    jump = await connectHost(deps, host.jumpHostId, depth + 1)
-    try {
+  try {
+    if (host.jumpHostId) {
+      jump = await connectHost(deps, host.jumpHostId, depth + 1)
       sock = await forwardOut(jump, host.hostname, host.port)
-    } catch (err) {
-      jump.end()
-      throw err
+    } else if (host.proxy?.host) {
+      // With a jump host, the proxy that counts is the jump host's own (the first hop).
+      const p = host.proxy
+      sock = await proxyConnect({ ...p, password: deps.store.getSecret(`host:${host.id}:proxyPassword`) }, host.hostname, host.port)
     }
+  } catch (err) {
+    jump?.end()
+    release()
+    throw err
   }
 
   const client = new Client()
   // ssh2 emits 'error' after 'ready' too; without a listener Node would crash the app.
   client.on('error', () => {})
-  client.on('close', () => jump?.end())
+  client.on('close', () => {
+    jump?.end()
+    release()
+  })
 
   // The handshake timeout is ours (ssh2's readyTimeout is disabled) so that the time the
   // user spends reading a fingerprint or typing a password is not counted.
@@ -265,6 +279,7 @@ export async function connectHost(deps: SshDeps, hostId: string, depth = 0): Pro
       client.removeListener('ready', onReady)
       client.destroy()
       jump?.end()
+      release()
       reject(err)
     }
     const arm = (): void => {

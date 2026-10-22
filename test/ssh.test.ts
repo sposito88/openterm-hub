@@ -203,3 +203,30 @@ test("a host's identity supplies the login", async () => {
   client.end()
   assert.equal(f.credentialPrompts.length, 0, 'no password prompt')
 })
+
+test('connects through a SOCKS5 proxy; local commands wrap the connection', async () => {
+  const { createSocksServer } = await import('../src/main/socks')
+  const { LocalHooks } = await import('../src/main/localCommand')
+  const asked: string[] = []
+  const proxy = createSocksServer(async (h, p) => {
+    asked.push(`${h}:${p}`)
+    return connect(p, h)
+  })
+  const proxyPort = await listen(proxy)
+  const f = fakeDeps({ password: 'secret' })
+  const store = f.deps.store as unknown as { host: (id: string) => Host | undefined }
+  const base = store.host('h1')!
+  store.host = (id) =>
+    id === 'h1'
+      ? { ...base, localBefore: 'up', localAfter: 'down', proxy: { type: 'socks5', host: '127.0.0.1', port: proxyPort, username: '', hasPassword: false } }
+      : undefined
+  const ran: string[] = []
+  f.deps.hooks = new LocalHooks(async (cmd) => void ran.push(cmd))
+  const client = await connectHost(f.deps, 'h1')
+  assert.equal((await exec(client, 'true')).code, 0)
+  assert.deepEqual(asked, [`127.0.0.1:${sshPort}`], 'the SSH connection went through the proxy')
+  assert.deepEqual(ran, ['up'])
+  client.end()
+  await once(client, 'close')
+  assert.deepEqual(ran, ['up', 'down'])
+})

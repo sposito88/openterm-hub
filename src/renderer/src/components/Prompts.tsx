@@ -12,7 +12,7 @@ function refocusTerminal(): void {
 
 function CredentialForm({ prompt }: { prompt: CredentialPrompt }) {
   const t = useT()
-  const [values, setValues] = useState(() => prompt.fields.map(() => ''))
+  const [values, setValues] = useState(() => prompt.fields.map((f) => f.value ?? ''))
   const answer = (v: string[] | null): void => {
     api.answerCredential(prompt.promptId, v)
     useApp.setState((s) => ({ credentialPrompts: s.credentialPrompts.filter((p) => p.promptId !== prompt.promptId) }))

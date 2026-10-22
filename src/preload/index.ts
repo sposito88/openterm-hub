@@ -13,7 +13,7 @@ const invoke = [
   'localHome', 'localList', 'suggest',
   'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile', 'sftpChmod',
   'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram', 'listAgentKeys',
-  'sftpCopy', 'localCopy'
+  'sftpCopy', 'localCopy', 'runSnippet', 'syncStatus', 'enableSync', 'disableSync', 'syncNow', 'pickFolder'
 ] as const
 
 /** Fire-and-forget calls (hot paths such as keystrokes). */
@@ -42,7 +42,8 @@ const api: Record<string, unknown> = {
   onForwardStatus: on('forward:status'),
   onSnapshotChanged: on('snapshot:changed'),
   onLogsChanged: on('logs:changed'),
-  onSftpSynced: on('sftp:synced')
+  onSftpSynced: on('sftp:synced'),
+  onSyncStatus: on('sync:status')
 }
 // Files dropped from the OS file manager: their path is only readable here.
 api.pathForFile = (file: File) => webUtils.getPathForFile(file)

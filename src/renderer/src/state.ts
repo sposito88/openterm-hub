@@ -11,7 +11,7 @@ import { api, errorMessage } from './api'
 import { translate } from './i18n'
 
 export type View = 'hosts' | 'identities' | 'workspaces' | 'keys' | 'forwards' | 'snippets' | 'knownHosts' | 'logs' | 'settings'
-export type SettingsSection = 'terminal' | 'appearance' | 'sftp' | 'shortcuts' | 'logs' | 'backup' | 'about'
+export type SettingsSection = 'terminal' | 'appearance' | 'sftp' | 'shortcuts' | 'variables' | 'sync' | 'logs' | 'backup' | 'about'
 
 export interface WorkspaceTabPane {
   id: string

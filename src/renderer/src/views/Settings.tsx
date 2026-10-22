@@ -9,7 +9,8 @@ import {
   SHORTCUT_ACTIONS,
   type ShortcutAction
 } from '@shared/shortcuts'
-import { TERM_TYPES, WORD_SEPARATORS, type FileAssociation, type Settings as SettingsT } from '@shared/types'
+import { BUILTIN_VARIABLES } from '@shared/snippetVars'
+import { TERM_TYPES, WORD_SEPARATORS, type FileAssociation, type Settings as SettingsT, type SnippetVariable, type SyncStatus } from '@shared/types'
 import { BUNDLED_FONTS, fontStack, systemMonospaceFonts } from '../fonts'
 import { api } from '../api'
 import { Icon, type IconName } from '../components/Icon'
@@ -440,6 +441,137 @@ function LogsSection({ s }: { s: SettingsT }) {
   )
 }
 
+function VariablesSection({ s }: { s: SettingsT }) {
+  const t = useT()
+  const [vars, setVars] = useState<SnippetVariable[]>(s.variables)
+  const update = (next: SnippetVariable[]): void => setVars(next)
+  // Saved when a field loses focus, so typing does not write the settings on every key.
+  const commit = (next = vars): void => save({ variables: next.filter((v) => v.name.trim()).map((v) => ({ name: v.name.trim(), value: v.value })) })
+  return (
+    <div className="panel">
+      <div className="setting-row">
+        <div>
+          <div className="label">{t('snippetVariables')}</div>
+          <div className="hint">{t('snippetVariablesHint')}</div>
+          <div className="hint mono">{[...BUILTIN_VARIABLES.map((v) => `{{${v}}}`), '{{ask:Pergunta=padrão}}'].join('  ')}</div>
+        </div>
+      </div>
+      {vars.map((v, i) => (
+        <div key={i} className="var-row">
+          <input
+            className="input mono"
+            placeholder={t('variableName')}
+            value={v.name}
+            onChange={(e) => update(vars.map((x, j) => (j === i ? { ...x, name: e.target.value.replace(/[^\w-]/g, '') } : x)))}
+            onBlur={() => commit()}
+          />
+          <input
+            className="input mono"
+            placeholder={t('variableValue')}
+            value={v.value}
+            onChange={(e) => update(vars.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+            onBlur={() => commit()}
+          />
+          <button
+            className="btn small icon danger"
+            title={t('delete')}
+            onClick={() => {
+              const next = vars.filter((_, j) => j !== i)
+              update(next)
+              commit(next)
+            }}
+          >
+            <Icon name="trash" />
+          </button>
+        </div>
+      ))}
+      <button className="btn small" onClick={() => update([...vars, { name: '', value: '' }])}>
+        <Icon name="plus" /> {t('addVariable')}
+      </button>
+    </div>
+  )
+}
+
+function SyncSection() {
+  const t = useT()
+  const [st, setSt] = useState<SyncStatus | null>(null)
+  const [folder, setFolder] = useState('')
+  const [pass, setPass] = useState('')
+  const [pass2, setPass2] = useState('')
+  useEffect(() => {
+    void api.syncStatus().then((x) => {
+      setSt(x)
+      setFolder(x.folder)
+    })
+    return api.onSyncStatus(setSt)
+  }, [])
+  if (!st) return null
+  const enable = async (): Promise<void> => {
+    if (pass !== pass2) return useApp.getState().toast(t('passphraseMismatch'), true)
+    const res = await attempt(() => api.enableSync(folder, pass || undefined))
+    if (!res) return
+    setSt(res)
+    setPass('')
+    setPass2('')
+    if (res.error) useApp.getState().toast(res.error, true)
+  }
+  return (
+    <div className="panel">
+      <div className="setting-row">
+        <div>
+          <div className="label">{t('syncTitle')}</div>
+          <div className="hint">{t('syncHint')}</div>
+        </div>
+        {st.enabled && <Switch on onChange={() => void attempt(() => api.disableSync()).then((x) => x && setSt(x))} />}
+      </div>
+      <Row label={t('syncFolder')} hint={t('syncFolderHint')}>
+        <div style={{ display: 'flex', gap: 6, minWidth: 0 }}>
+          <input className="input mono" value={folder} onChange={(e) => setFolder(e.target.value)} style={{ width: 260 }} />
+          <button
+            className="btn small"
+            title={t('chooseFolder')}
+            onClick={async () => {
+              const picked = await api.pickFolder()
+              if (picked) setFolder(picked)
+            }}
+          >
+            <Icon name="folder" />
+          </button>
+        </div>
+      </Row>
+      <Row label={st.hasPassphrase ? t('syncPassphraseKeep') : t('syncPassphrase')} hint={t('syncPassphraseHint')}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <input className="input" type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder={st.hasPassphrase ? '••••••••' : ''} />
+          <input className="input" type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder={t('repeatPassphrase')} />
+        </div>
+      </Row>
+      <div className="setting-row">
+        <span className={`sync-status ${st.error ? 'error' : ''}`}>
+          {st.busy
+            ? t('syncing')
+            : st.error
+              ? st.error
+              : st.lastSync
+                ? `${t('lastSync')}: ${new Date(st.lastSync).toLocaleString()}`
+                : st.enabled
+                  ? ''
+                  : t('syncOff')}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {st.enabled && (
+            <button className="btn" disabled={st.busy} onClick={() => void attempt(() => api.syncNow()).then((x) => x && setSt(x))}>
+              <Icon name="refresh" /> {t('syncNow')}
+            </button>
+          )}
+          <button className="btn primary" disabled={st.busy || !folder.trim() || (!st.hasPassphrase && !pass)} onClick={enable}>
+            {st.enabled ? t('save') : t('enableSync')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BackupSection() {
   const t = useT()
   const toast = useApp((st) => st.toast)
@@ -510,6 +642,8 @@ const SECTIONS: Array<{ id: SettingsSection; icon: IconName; label: TKey }> = [
   { id: 'appearance', icon: 'palette', label: 'appearance' },
   { id: 'sftp', icon: 'folder', label: 'sftpSection' },
   { id: 'shortcuts', icon: 'keyboard', label: 'shortcuts' },
+  { id: 'variables', icon: 'code', label: 'snippetVariables' },
+  { id: 'sync', icon: 'refresh', label: 'syncTitle' },
   { id: 'logs', icon: 'clock', label: 'logs' },
   { id: 'backup', icon: 'download', label: 'backup' },
   { id: 'about', icon: 'external', label: 'about' }
@@ -525,6 +659,8 @@ export function Settings() {
     appearance: <AppearanceSection s={s} />,
     sftp: <SftpSection s={s} />,
     shortcuts: <ShortcutsSection s={s} />,
+    variables: <VariablesSection s={s} />,
+    sync: <SyncSection />,
     logs: <LogsSection s={s} />,
     backup: <BackupSection />,
     about: <AboutSection />

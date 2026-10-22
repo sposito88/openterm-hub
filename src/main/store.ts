@@ -14,6 +14,7 @@ import {
   type Snippet,
   type SshKey
 } from '@shared/types'
+import { isSyncedSecret, type VaultData } from './sync'
 
 interface Data {
   hosts: Host[]
@@ -26,7 +27,11 @@ interface Data {
   knownHosts: KnownHost[]
   settings: Settings
   history: string[]
+  /** Deleted item id → when (ms), so a synced device does not bring it back. */
+  deleted: Record<string, number>
 }
+
+type Collection = 'hosts' | 'identities' | 'workspaces' | 'keys' | 'snippets' | 'forwards'
 
 const HISTORY_LIMIT = 2000
 
@@ -49,7 +54,8 @@ function emptyData(): Data {
     forwards: [],
     knownHosts: [],
     settings: { ...DEFAULT_SETTINGS },
-    history: []
+    history: [],
+    deleted: {}
   }
 }
 
@@ -101,6 +107,7 @@ export class Store {
     }
     this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
     this.data.workspaces = this.data.workspaces ?? []
+    this.data.deleted = this.data.deleted ?? {}
     this.secrets = readJson<Record<string, string>>(this.secretsFile, {})
   }
 
@@ -163,25 +170,33 @@ export class Store {
     return raw.startsWith('enc:') ? safeStorage.decryptString(buf) : buf.toString('utf8')
   }
 
+  private encode(value: string): string {
+    return safeStorage.isEncryptionAvailable()
+      ? 'enc:' + safeStorage.encryptString(value).toString('base64')
+      : 'raw:' + Buffer.from(value, 'utf8').toString('base64')
+  }
+
   setSecret(name: string, value: string | undefined): void {
-    if (value === undefined || value === '') {
-      delete this.secrets[name]
-    } else if (safeStorage.isEncryptionAvailable()) {
-      this.secrets[name] = 'enc:' + safeStorage.encryptString(value).toString('base64')
-    } else {
-      this.secrets[name] = 'raw:' + Buffer.from(value, 'utf8').toString('base64')
-    }
+    if (value === undefined || value === '') delete this.secrets[name]
+    else this.secrets[name] = this.encode(value)
+    writeJson(this.secretsFile, this.secrets)
+  }
+
+  /** Removes every secret whose name starts with prefix (all of a host's: "host:<id>:"). */
+  private deleteSecrets(prefix: string): void {
+    for (const name of Object.keys(this.secrets)) if (name.startsWith(prefix)) delete this.secrets[name]
     writeJson(this.secretsFile, this.secrets)
   }
 
   // ---- generic collections -------------------------------------------------
 
-  private upsert<K extends 'hosts' | 'identities' | 'workspaces' | 'keys' | 'snippets' | 'forwards'>(
-    key: K,
-    item: Omit<Data[K][number], 'id'> & { id?: string }
-  ): Data[K][number] {
+  private stamp(item: { updatedAt?: number }): void {
+    item.updatedAt = Date.now()
+  }
+
+  private upsert<K extends Collection>(key: K, item: Omit<Data[K][number], 'id'> & { id?: string }): Data[K][number] {
     const list = this.data[key] as Array<Data[K][number]>
-    const full = { ...item, id: item.id || randomUUID() } as Data[K][number]
+    const full = { ...item, id: item.id || randomUUID(), updatedAt: Date.now() } as Data[K][number]
     const idx = list.findIndex((x) => x.id === full.id)
     if (idx >= 0) list[idx] = full
     else list.push(full)
@@ -189,9 +204,10 @@ export class Store {
     return full
   }
 
-  private remove(key: 'hosts' | 'identities' | 'workspaces' | 'keys' | 'snippets' | 'forwards', id: string): void {
+  private remove(key: Collection, id: string): void {
     const list = this.data[key] as Array<{ id: string }>
     this.data[key] = list.filter((x) => x.id !== id) as never
+    this.data.deleted[id] = Date.now()
   }
 
   // ---- hosts ---------------------------------------------------------------
@@ -246,6 +262,8 @@ export class Store {
       for (const h of this.data.hosts) {
         if (h.group === prev) h.group = clean
         else if (h.group.startsWith(prev + ' / ')) h.group = clean + h.group.slice(prev.length)
+        else continue
+        this.stamp(h)
       }
     }
 
@@ -253,8 +271,10 @@ export class Store {
     if (hostIds !== undefined) {
       const selected = new Set(hostIds)
       for (const h of this.data.hosts) {
-        if (selected.has(h.id)) h.group = clean
-        else if (h.group === clean) h.group = ''
+        if (selected.has(h.id) && h.group !== clean) h.group = clean
+        else if (!selected.has(h.id) && h.group === clean) h.group = ''
+        else continue
+        this.stamp(h)
       }
     }
     this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
@@ -266,7 +286,10 @@ export class Store {
     if (!clean) return
     this.data.groups = this.data.groups.filter((g) => g !== clean && !g.startsWith(clean + ' / '))
     for (const h of this.data.hosts) {
-      if (h.group === clean || h.group.startsWith(clean + ' / ')) h.group = ''
+      if (h.group === clean || h.group.startsWith(clean + ' / ')) {
+        h.group = ''
+        this.stamp(h)
+      }
     }
     this.commit()
   }
@@ -274,8 +297,12 @@ export class Store {
   deleteHost(id: string): void {
     this.remove('hosts', id)
     this.data.forwards = this.data.forwards.filter((f) => f.hostId !== id)
-    for (const h of this.data.hosts) if (h.jumpHostId === id) h.jumpHostId = null
-    this.setSecret(`host:${id}:password`, undefined)
+    for (const h of this.data.hosts) {
+      if (h.jumpHostId !== id) continue
+      h.jumpHostId = null
+      this.stamp(h)
+    }
+    this.deleteSecrets(`host:${id}:`)
     this.commit()
   }
 
@@ -301,6 +328,7 @@ export class Store {
       if (h.identityId !== id) continue
       h.identityId = null
       if (identity && !h.username) h.username = identity.username
+      this.stamp(h)
     }
     this.setSecret(`identity:${id}:password`, undefined)
     this.commit()
@@ -351,8 +379,11 @@ export class Store {
 
   deleteKey(id: string): void {
     this.remove('keys', id)
-    for (const h of this.data.hosts) if (h.keyId === id) h.keyId = null
-    for (const i of this.data.identities) if (i.keyId === id) i.keyId = null
+    for (const x of [...this.data.hosts, ...this.data.identities]) {
+      if (x.keyId !== id) continue
+      x.keyId = null
+      this.stamp(x)
+    }
     this.setSecret(`key:${id}:private`, undefined)
     this.setSecret(`key:${id}:passphrase`, undefined)
     this.commit()
@@ -374,7 +405,11 @@ export class Store {
 
   deleteSnippet(id: string): void {
     this.remove('snippets', id)
-    for (const h of this.data.hosts) if (h.startupSnippetId === id) h.startupSnippetId = null
+    for (const h of this.data.hosts) {
+      if (h.startupSnippetId !== id) continue
+      h.startupSnippetId = null
+      this.stamp(h)
+    }
     this.commit()
   }
 
@@ -432,6 +467,40 @@ export class Store {
     this.data.history = h.slice(-HISTORY_LIMIT)
     // History changes on every command; persist without notifying the UI.
     writeJson(this.dataFile, this.data)
+  }
+
+  // ---- sync ----------------------------------------------------------------
+
+  /** What a synced vault holds: the collections, deletions and their secrets (decrypted). */
+  syncPayload(): VaultData {
+    const { hosts, groups, identities, workspaces, keys, snippets, forwards, knownHosts, deleted } = this.data
+    const secrets: Record<string, string> = {}
+    for (const name of Object.keys(this.secrets)) {
+      if (!isSyncedSecret(name)) continue
+      const value = this.getSecret(name)
+      if (value) secrets[name] = value
+    }
+    // When a host was last opened is per device: syncing it would rewrite the vault on every connection.
+    const synced = hosts.map(({ lastConnectedAt: _, ...h }) => h)
+    return structuredClone({ hosts: synced, groups, identities, workspaces, keys, snippets, forwards, knownHosts, deleted, secrets })
+  }
+
+  /** Replaces the synced data with a merged vault (settings and history stay per device). */
+  applySync(v: VaultData): void {
+    const opened = new Map(this.data.hosts.map((h) => [h.id, h.lastConnectedAt ?? null]))
+    this.data.hosts = v.hosts.map((h) => ({ ...h, lastConnectedAt: opened.get(h.id) ?? null }))
+    this.data.identities = v.identities
+    this.data.workspaces = v.workspaces
+    this.data.keys = v.keys
+    this.data.snippets = v.snippets
+    this.data.forwards = v.forwards
+    this.data.knownHosts = v.knownHosts
+    this.data.deleted = v.deleted
+    this.data.groups = [...new Set(v.groups.map(normalizeGroup).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    for (const name of Object.keys(this.secrets)) if (isSyncedSecret(name)) delete this.secrets[name]
+    for (const [name, value] of Object.entries(v.secrets)) if (isSyncedSecret(name)) this.secrets[name] = this.encode(value)
+    writeJson(this.secretsFile, this.secrets)
+    this.commit()
   }
 
   // ---- backup --------------------------------------------------------------

@@ -7,15 +7,18 @@ import { translate, useT } from '../i18n'
 import { tabSessions } from '../sessionBus'
 import { attempt, useApp } from '../state'
 
-/** Types a snippet into a terminal tab (the last used one by default) and focuses it. */
+/**
+ * Types a snippet into a terminal tab (the last used one by default) and focuses it.
+ * The main process fills its variables, asking first when it has {{ask:…}}.
+ */
 export function runSnippet(s: Snippet, tabId = useApp.getState().lastTerminal): void {
   const sessionId = tabId && tabSessions.get(tabId)
   if (!tabId || !sessionId) {
     useApp.getState().toast(translate('noTerminal'), true)
     return
   }
-  api.writeSession(sessionId, s.script.replace(/\n?$/, '\n').replace(/\n/g, '\r'))
   useApp.getState().activate(tabId)
+  void attempt(() => api.runSnippet(sessionId, s.id))
 }
 
 function SnippetEditor({ snippet, onClose }: { snippet: Partial<Snippet>; onClose(): void }) {
@@ -35,6 +38,7 @@ function SnippetEditor({ snippet, onClose }: { snippet: Partial<Snippet>; onClos
         <Field label={t('script')}>
           <textarea className="input mono" rows={8} value={script} onChange={(e) => setScript(e.target.value)} required />
         </Field>
+        <p className="note">{t('snippetVarsHint')}</p>
         <FormActions onCancel={onClose} />
       </form>
     </Drawer>

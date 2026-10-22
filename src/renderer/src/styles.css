@@ -1821,3 +1821,66 @@ textarea.input {
   flex-direction: column;
   gap: 1px;
 }
+
+/* Collapsible groups of advanced host options. */
+details.section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+details.section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+details.section[open] > summary {
+  margin-bottom: 8px;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-n {
+  width: 18px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: right;
+}
+
+.var-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.var-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sync-status.error {
+  color: var(--danger);
+}

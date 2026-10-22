@@ -3,12 +3,15 @@ import { spawn } from 'node:child_process'
 import { promises as fsp, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Host, HostInput, Identity, IdentityInput, OpenTermApi, SessionTarget } from '@shared/types'
+import { randomUUID } from 'node:crypto'
+import type { Host, HostInput, Identity, IdentityInput, LoginStep, OpenTermApi, ProxyConfig, SessionTarget } from '@shared/types'
 import { suggest } from './complete'
 import { figSpecs } from './figspecs'
 import { Forwarding } from './forwarding'
+import { stepMatcher } from './automation'
 import { importFile, isImportFile } from './importer'
 import { generateKey, importKey, installKeyOnHost } from './keys'
+import { LocalHooks } from './localCommand'
 import { Logs } from './logs'
 import { Prompts } from './prompts'
 import { listAgentKeys } from './ssh'
@@ -17,6 +20,7 @@ import { launch, localHome, localList, Sftp, splitCommand, type Opener } from '.
 import { loadShellHistory } from './shellHistory'
 import { parseJump, parseSshConfig } from './sshconfig'
 import { Store } from './store'
+import { Sync } from './sync'
 
 // Separate profile for development and tests.
 if (process.env.OPENTERM_DATA_DIR) app.setPath('userData', process.env.OPENTERM_DATA_DIR)
@@ -75,7 +79,38 @@ function cleanHost(input: HostInput, store: Store): Omit<Host, 'id'> & { id?: st
     agentForward: !!input.agentForward,
     jumpHostId: input.jumpHostId && input.jumpHostId !== id ? input.jumpHostId : null,
     startupSnippetId: input.startupSnippetId || null,
-    tags: input.tags.map((t) => t.trim()).filter(Boolean)
+    tags: input.tags.map((t) => t.trim()).filter(Boolean),
+    loginSteps: cleanSteps(input.loginSteps),
+    autoSudo: !!input.autoSudo,
+    proxy: cleanProxy(input, store),
+    localBefore: (input.localBefore ?? '').trim(),
+    localAfter: (input.localAfter ?? '').trim()
+  }
+}
+
+function cleanSteps(steps: LoginStep[] | undefined): LoginStep[] {
+  return (steps ?? [])
+    .filter((s) => s.expect.trim() || s.send || s.secret)
+    .map((s) => {
+      // A bad regular expression is reported when saving, not on every connection.
+      stepMatcher(s.expect)
+      return { id: s.id || randomUUID(), expect: s.expect, send: s.secret ? '' : s.send, secret: !!s.secret }
+    })
+}
+
+function cleanProxy(input: HostInput, store: Store): ProxyConfig | null {
+  const p = input.proxy
+  if (!p?.host.trim()) return null
+  const port = Number(p.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Porta do proxy inválida')
+  if (p.type !== 'socks5' && p.type !== 'http') throw new Error('Tipo de proxy inválido')
+  const stored = input.id ? !!store.getSecret(`host:${input.id}:proxyPassword`) : false
+  return {
+    type: p.type,
+    host: p.host.trim(),
+    port,
+    username: p.username.trim(),
+    hasPassword: input.proxyPassword === undefined ? stored : input.proxyPassword !== ''
   }
 }
 
@@ -210,13 +245,16 @@ app.whenReady().then(() => {
 
   const store = new Store()
   const prompts = new Prompts(send)
-  const deps = { store, prompts }
+  const hooks = new LocalHooks(undefined, (err) => prompts.notice(err.message))
+  const deps = { store, prompts, hooks }
   const logs = new Logs(join(app.getPath('userData'), 'logs'), () => send('logs:changed'))
   const sessions = new Sessions(deps, send, logs)
   const sftp = new Sftp(deps, send, openWith)
   const forwarding = new Forwarding(deps, send)
   const specs = figSpecs()
   store.onChange(() => send('snapshot:changed'))
+  const sync = new Sync(store, (st) => send('sync:status', st))
+  sync.restart()
 
   /** Program associated with the file's extension in Settings → SFTP ('' = system default). */
   const associatedCommand = (path: string): string => {
@@ -238,8 +276,18 @@ app.whenReady().then(() => {
     appVersion: () => app.getVersion(),
     getHostPassword: (hostId: string) => store.getSecret(`host:${hostId}:password`) ?? '',
     saveHost: (input) => {
+      const previous = input.id ? store.host(input.id) : undefined
       const host = store.saveHost(cleanHost(input, store))
       if (input.password !== undefined) store.setSecret(`host:${host.id}:password`, input.password)
+      if (input.proxyPassword !== undefined || !host.proxy) store.setSecret(`host:${host.id}:proxyPassword`, host.proxy ? input.proxyPassword : undefined)
+      // Secret answers of steps that are gone, or no longer secret, are removed.
+      const secretSteps = new Set((host.loginSteps ?? []).filter((s) => s.secret).map((s) => s.id))
+      for (const s of previous?.loginSteps ?? []) {
+        if (!secretSteps.has(s.id)) store.setSecret(`host:${host.id}:step:${s.id}`, undefined)
+      }
+      for (const [stepId, value] of Object.entries(input.stepSecrets ?? {})) {
+        if (secretSteps.has(stepId)) store.setSecret(`host:${host.id}:step:${stepId}`, value)
+      }
       return host
     },
     deleteHost: (id) => store.deleteHost(id),
@@ -316,6 +364,11 @@ app.whenReady().then(() => {
       if (target.kind === 'host') store.touchHost(target.hostId)
       return sessions.open(target, cols, rows)
     },
+    runSnippet: (sessionId, snippetId) => {
+      const snippet = store.snippet(snippetId)
+      if (!snippet) throw new Error('Snippet não encontrado')
+      return sessions.typeSnippet(sessionId, snippet)
+    },
     writeSession: (id, data) => sessions.write(id, data),
     resizeSession: (id, cols, rows) => sessions.resize(id, cols, rows),
     closeSession: (id) => sessions.close(id),
@@ -357,6 +410,28 @@ app.whenReady().then(() => {
     deleteLog: (id) => logs.delete(id),
     clearLogs: () => logs.clear(),
     listAgentKeys: () => listAgentKeys(),
+    syncStatus: () => sync.status(),
+    enableSync: async (folder, passphrase) => {
+      if (!folder.trim()) throw new Error('Escolha a pasta de sincronização')
+      if (passphrase !== undefined) {
+        if (passphrase.length < 8) throw new Error('A senha do cofre precisa de pelo menos 8 caracteres')
+        store.setSecret('sync:passphrase', passphrase)
+      }
+      if (!store.getSecret('sync:passphrase')) throw new Error('Defina a senha do cofre')
+      store.saveSettings({ syncFolder: folder.trim(), syncEnabled: true })
+      sync.restart()
+      return sync.syncNow()
+    },
+    disableSync: () => {
+      store.saveSettings({ syncEnabled: false })
+      sync.restart()
+      return sync.status()
+    },
+    syncNow: () => sync.syncNow(),
+    pickFolder: async () => {
+      const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] })
+      return res.canceled ? null : res.filePaths[0]
+    },
     // App history goes last so it ranks above the imported shell history.
     suggest: (line) => suggest(line, specs, [...shellHistory, ...store.history()], store.snippets()),
     recordHistory: (line) => store.recordHistory(line),
@@ -379,6 +454,7 @@ app.whenReady().then(() => {
   }
 
   app.on('before-quit', () => {
+    sync.stop()
     sessions.closeAll()
     sftp.closeAll()
     forwarding.stopAll()

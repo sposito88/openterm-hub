@@ -58,12 +58,15 @@ Detalhes em [BUILDING.md](BUILDING.md).
 | **Terminal** | Abas com xterm.js, terminal local (seu shell), porta serial, busca no conteúdo, reconexão automática quando a conexão cai, selecionar para copiar e botão direito para colar, som de bell, tipo de emulação (`TERM`) configurável e 19 temas de cores (Dracula, Nord, Solarized, Gruvbox, Tokyo Night, Catppuccin, Kanagawa, Flexoki…). |
 | **Identidades** | Um login (usuário, senha e/ou chave) salvo uma vez e reaproveitado em vários hosts. Trocou a senha, troca num lugar só. |
 | **Workspaces** | Telas divididas (lado a lado ou empilhado) com redimensionamento, broadcast de comandos para múltiplos servidores simultâneos, maximizar painel e salvar o conjunto no cofre para reabrir com 1 clique. Arraste abas de terminal para fundir em um workspace. |
-| **Autenticação** | Senha salva, chave privada, ssh-agent, keyboard-interactive (2FA/OTP), agent forwarding e jump hosts encadeados. **Chaves de segurança FIDO2** (YubiKey, SoloKey…) via ssh-agent, com aviso para tocar na chave. |
+| **Autenticação** | Senha salva, chave privada, ssh-agent, keyboard-interactive (2FA/OTP), agent forwarding e jump hosts encadeados. **Chaves de segurança FIDO2** (YubiKey, SoloKey…) via ssh-agent, com aviso para tocar na chave. **Proxy SOCKS5 ou HTTP** por host, com usuário e senha opcionais. |
+| **Automação do login** | **Sequências de login** por host: "quando aparecer X, digite Y" (texto ou `/regex/`), para `sudo su -`, menus de bastion e `enable` em switches; respostas secretas ficam cifradas. **Senha do sudo automática** (opcional por host): responde só depois de um comando que roda `sudo` e para se a senha for recusada. |
+| **Comandos locais** | Por host, um comando que roda **neste computador** antes de conectar (subir a VPN, wake-on-LAN) e outro depois da última sessão fechar. Terminal, SFTP e túneis do mesmo host compartilham: fechar o SFTP não derruba a VPN do terminal. |
 | **Segurança** | Confirmação da chave do servidor na primeira conexão, alerta quando ela muda e lista de *known hosts*. Segredos cifrados pelo chaveiro do sistema. |
 | **SFTP** | Dois painéis, cada um apontando para este computador **ou qualquer host do cofre**: copie local↔servidor ou **direto de um servidor para outro**. Upload e download recursivos, progresso, nova pasta, renomear, excluir e arquivos ocultos opcionais. **Abrir com…**: edite um arquivo remoto no programa de sua escolha, e cada vez que salvar ele volta ao servidor. |
 | **Port forwarding** | Túneis local (`-L`), remoto (`-R`) e dinâmico (`-D`, SOCKS5). |
 | **Chaves** | Gera Ed25519, RSA e ECDSA (com passphrase opcional), importa, exporta e instala no servidor (equivalente ao `ssh-copy-id`). |
-| **Snippets** | Comandos salvos para rodar em qualquer aba ou automaticamente ao conectar. |
+| **Snippets** | Comandos salvos para rodar em qualquer aba ou automaticamente ao conectar. **Variáveis**: `{{host}}`, `{{user}}`, `{{port}}`, `{{date}}`, variáveis globais e `{{ask:Pergunta=padrão}}`, que pergunta na hora. Textos como o `{{.Names}}` do docker ficam intactos. |
+| **Sincronização** | Opcional: um cofre **cifrado de ponta a ponta** (AES-256-GCM, chave derivada da sua senha com scrypt) numa pasta que você já sincroniza (Nextcloud, Syncthing, Dropbox, Git…). Junta as mudanças item a item, respeita exclusões e aproveita as cópias de conflito das ferramentas de sync. A senha do cofre nunca sai do computador. |
 | **Autocomplete** | Sugestões de comandos, subcomandos e opções (mais de 1400 ferramentas, via specs do [Fig](https://github.com/withfig/autocomplete)), do seu histórico, do histórico importado do bash/zsh/fish e dos snippets. Tab aceita, ↑/↓ navegam, Esc fecha. |
 | **Logs** | Histórico de conexões (quando, para onde, duração e como terminou) e, se ativado, gravação da saída das sessões, que pode ser revista depois. |
 | **Atalhos** | Todos configuráveis em Configurações → Atalhos: trocar de aba (Ctrl+1…9, Alt+←/→), fechar aba, copiar, colar, selecionar tudo, buscar, zoom da fonte, abrir terminal local, serial, SFTP, port forwarding, snippets e configurações. |
@@ -121,14 +124,15 @@ test/          node:test, com um servidor ssh2 real no processo
 
 Os dados ficam na pasta de dados do app (no Linux, `~/.config/openterm-hub/`):
 - `data.json`: hosts, chaves públicas, snippets, regras, known hosts, configurações e histórico;
-- `secrets.json`: senhas e chaves privadas, cifradas com `safeStorage`.
+- `secrets.json`: senhas e chaves privadas, cifradas com `safeStorage`;
+- com a sincronização ativa, `openterm-hub-vault.json` na pasta escolhida (cifrado; sem a senha do cofre, ninguém lê).
 
 Veja [SECURITY.md](SECURITY.md) para os detalhes de segurança.
 
 ## Roadmap
 
-- Sincronização opcional entre dispositivos (cofre cifrado ponta a ponta).
 - Compartilhamento de hosts em equipe.
+- Encoding, fonte e backspace por host; importadores do PuTTY, MobaXterm e mRemoteNG.
 - Assinatura de código para Windows e notarização para macOS.
 - Editor de arquivos remotos e arrastar e soltar no SFTP.
 
@@ -150,7 +154,10 @@ OpenTerm Hub is an open source (MIT) desktop SSH client built with Electron. It 
 - a dual-pane SFTP browser;
 - local, remote and dynamic (SOCKS5) port forwarding;
 - SSH key generation and installation;
-- snippets;
+- SOCKS5/HTTP proxy per host;
+- login sequences ("when X shows up, type Y"), optional automatic sudo password and local commands run before/after connecting (VPN, wake-on-LAN);
+- snippets with variables ({{host}}, {{date}}, globals and {{ask:…}});
+- optional end-to-end encrypted sync through any folder you already sync (AES-256-GCM, scrypt);
 - inline command autocomplete powered by the Fig specs, your history and your snippets.
 
 Install with `curl -fsSL https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.sh | sh` (Linux/macOS) or `irm https://raw.githubusercontent.com/sposito88/openterm-hub/main/install.ps1 | iex` (Windows PowerShell); downloads are checked against the release SHA256SUMS. From source: `npm install && npm run dev`; `npm test` runs the test suite. UI languages: Portuguese and English.

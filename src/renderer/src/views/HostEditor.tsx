@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { Host, HostInput, OsId, Protocol } from '@shared/types'
+import type { Host, HostInput, LoginStep, OsId, Protocol, ProxyType } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
 import { HostBadge, OS_LIST } from '../components/OsIcon'
@@ -30,8 +30,15 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
     agentForward: host?.agentForward ?? false,
     jumpHostId: host?.jumpHostId ?? null,
     startupSnippetId: host?.startupSnippetId ?? null,
-    tags: host?.tags ?? []
+    tags: host?.tags ?? [],
+    loginSteps: host?.loginSteps ?? [],
+    autoSudo: host?.autoSudo ?? false,
+    proxy: host?.proxy ?? null,
+    localBefore: host?.localBefore ?? '',
+    localAfter: host?.localAfter ?? ''
   }))
+  const [stepSecrets, setStepSecrets] = useState<Record<string, string>>({})
+  const [proxyPassword, setProxyPassword] = useState<string | undefined>(undefined)
   const [password, setPassword] = useState('')
   const [clearPassword, setClearPassword] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -71,7 +78,7 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
     e.preventDefault()
     setBusy(true)
     const pw = clearPassword ? '' : (passwordLoaded || password) ? password : undefined
-    const saved = await attempt(() => api.saveHost({ ...form, password: pw }))
+    const saved = await attempt(() => api.saveHost({ ...form, password: pw, proxyPassword, stepSecrets }))
     setBusy(false)
     if (saved) onClose()
   }
@@ -254,6 +261,40 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
             <Check label={t('agentForward')} checked={form.agentForward} onChange={(v) => set('agentForward', v)} />
           </>
         )}
+        <details className="section" open={!!form.loginSteps?.length || form.autoSudo}>
+          <summary>{t('automation')}</summary>
+          <p className="note">{t('loginStepsHint')}</p>
+          <LoginSteps
+            steps={form.loginSteps ?? []}
+            secrets={stepSecrets}
+            onChange={(v) => set('loginSteps', v)}
+            onSecret={(id, v) => setStepSecrets((x) => ({ ...x, [id]: v }))}
+          />
+          <Check label={t('autoSudo')} checked={!!form.autoSudo} onChange={(v) => set('autoSudo', v)} />
+          <p className="note">{t('autoSudoHint')}</p>
+        </details>
+        {form.protocol === 'ssh' && (
+          <details className="section" open={!!form.proxy}>
+            <summary>{t('proxy')}</summary>
+            <ProxyFields
+              proxy={form.proxy ?? null}
+              password={proxyPassword}
+              onChange={(v) => set('proxy', v)}
+              onPassword={setProxyPassword}
+            />
+            {form.jumpHostId && <p className="note">{t('proxyJumpNote')}</p>}
+          </details>
+        )}
+        <details className="section" open={!!(form.localBefore || form.localAfter)}>
+          <summary>{t('localCommands')}</summary>
+          <Field label={t('localBefore')}>
+            <input className="input mono" value={form.localBefore ?? ''} placeholder="nmcli con up vpn-empresa" onChange={(e) => set('localBefore', e.target.value)} />
+          </Field>
+          <Field label={t('localAfter')}>
+            <input className="input mono" value={form.localAfter ?? ''} placeholder="nmcli con down vpn-empresa" onChange={(e) => set('localAfter', e.target.value)} />
+          </Field>
+          <p className="note">{t('localCommandsHint')}</p>
+        </details>
         <Field label={t('tags')}>
           <input
             className="input"
@@ -272,5 +313,125 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
         />
       )}
     </Drawer>
+  )
+}
+
+function LoginSteps({
+  steps,
+  secrets,
+  onChange,
+  onSecret
+}: {
+  steps: LoginStep[]
+  secrets: Record<string, string>
+  onChange(v: LoginStep[]): void
+  onSecret(id: string, v: string): void
+}) {
+  const t = useT()
+  const update = (i: number, patch: Partial<LoginStep>): void => onChange(steps.map((s, j) => (j === i ? { ...s, ...patch } : s)))
+  return (
+    <div className="steps">
+      {steps.map((s, i) => (
+        <div key={s.id} className="step">
+          <span className="step-n">{i + 1}</span>
+          <input className="input mono" placeholder={t('stepExpect')} value={s.expect} onChange={(e) => update(i, { expect: e.target.value })} />
+          <input
+            className="input mono"
+            type={s.secret ? 'password' : 'text'}
+            placeholder={s.secret ? (secrets[s.id] === undefined ? t('stepSecretKeep') : '') : t('stepSend')}
+            value={s.secret ? (secrets[s.id] ?? '') : s.send}
+            onChange={(e) => (s.secret ? onSecret(s.id, e.target.value) : update(i, { send: e.target.value }))}
+          />
+          <button
+            type="button"
+            className={`btn small icon ${s.secret ? 'active' : ''}`}
+            title={t('stepSecret')}
+            onClick={() => {
+              // Turning a step secret moves what was typed into the encrypted field.
+              if (!s.secret && s.send) onSecret(s.id, s.send)
+              update(i, { secret: !s.secret, send: '' })
+            }}
+          >
+            <Icon name={s.secret ? 'eyeOff' : 'eye'} />
+          </button>
+          <button type="button" className="btn small icon danger" title={t('delete')} onClick={() => onChange(steps.filter((_, j) => j !== i))}>
+            <Icon name="trash" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn small"
+        onClick={() => onChange([...steps, { id: crypto.randomUUID(), expect: '', send: '', secret: false }])}
+      >
+        <Icon name="plus" /> {t('addStep')}
+      </button>
+    </div>
+  )
+}
+
+function ProxyFields({
+  proxy,
+  password,
+  onChange,
+  onPassword
+}: {
+  proxy: HostInput['proxy']
+  password: string | undefined
+  onChange(v: HostInput['proxy']): void
+  onPassword(v: string): void
+}) {
+  const t = useT()
+  const p = proxy ?? { type: 'socks5' as ProxyType, host: '', port: 1080, username: '', hasPassword: false }
+  const set = (patch: Partial<typeof p>): void => onChange({ ...p, ...patch })
+  return (
+    <>
+      <div className="row">
+        <Field label={t('proxyType')}>
+          <select
+            className="input"
+            value={proxy ? p.type : ''}
+            onChange={(e) => {
+              const type = e.target.value as ProxyType | ''
+              if (!type) return onChange(null)
+              const port = !proxy || p.port === (p.type === 'http' ? 8080 : 1080) ? (type === 'http' ? 8080 : 1080) : p.port
+              onChange({ ...p, type, port })
+            }}
+          >
+            <option value="">{t('none')}</option>
+            <option value="socks5">SOCKS5</option>
+            <option value="http">HTTP (CONNECT)</option>
+          </select>
+        </Field>
+        {proxy && (
+          <>
+            <Field label={t('address')}>
+              <input className="input" value={p.host} onChange={(e) => set({ host: e.target.value })} required />
+            </Field>
+            <div style={{ flex: '0 0 90px' }}>
+              <Field label={t('port')}>
+                <input className="input" type="number" min={1} max={65535} value={p.port} onChange={(e) => set({ port: Number(e.target.value) })} />
+              </Field>
+            </div>
+          </>
+        )}
+      </div>
+      {proxy && (
+        <div className="row">
+          <Field label={t('proxyUser')}>
+            <input className="input" value={p.username} onChange={(e) => set({ username: e.target.value })} />
+          </Field>
+          <Field label={p.hasPassword ? t('passwordKeep') : t('password')}>
+            <input
+              className="input"
+              type="password"
+              value={password ?? ''}
+              placeholder={p.hasPassword && password === undefined ? '••••••••' : ''}
+              onChange={(e) => onPassword(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+    </>
   )
 }
