@@ -11,7 +11,7 @@ import { HostEditor } from './HostEditor'
 const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
 
 export function connectHost(host: Host): void {
-  useApp.getState().openTab('terminal', host.label, { kind: 'host', hostId: host.id })
+  useApp.getState().openTab('terminal', host.label, { kind: 'host', hostId: host.id }, host.theme ?? undefined)
 }
 
 export function openSftp(host: Host): void {

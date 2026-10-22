@@ -379,6 +379,48 @@ test('detectOsFromText and resolveHostOs identify OS icons from SSH banners, os-
   )
 })
 
+test('default settings has copyOnSelect enabled for PuTTY style UX', async () => {
+  const { DEFAULT_SETTINGS } = await import('../src/shared/types')
+  assert.equal(DEFAULT_SETTINGS.copyOnSelect, true)
+})
+
+test('tab duplication, theme override and closing other tabs', async () => {
+  const { useApp } = await import('../src/renderer/src/state')
+  // Reset tabs
+  useApp.setState({ tabs: [], activeTab: null })
+
+  // Open a tab with custom theme
+  useApp.getState().openTab('terminal', 'Production Web', { kind: 'host', hostId: 'h-prd' }, 'phosphor-red')
+  const [initialTab] = useApp.getState().tabs
+  assert.equal(initialTab.title, 'Production Web')
+  assert.equal(initialTab.themeOverride, 'phosphor-red')
+
+  // Change theme dynamically
+  useApp.getState().setTabTheme(initialTab.id, 'dracula')
+  assert.equal(useApp.getState().tabs.find((t) => t.id === initialTab.id)?.themeOverride, 'dracula')
+
+  // Duplicate the tab
+  useApp.getState().duplicateTab(initialTab.id)
+  const tabsAfterDupe = useApp.getState().tabs
+  assert.equal(tabsAfterDupe.length, 2)
+  const duplicated = tabsAfterDupe[1]
+  assert.equal(duplicated.title, 'Production Web')
+  assert.equal(duplicated.themeOverride, 'dracula')
+  assert.deepEqual(duplicated.target, { kind: 'host', hostId: 'h-prd' })
+  assert.equal(useApp.getState().activeTab, duplicated.id)
+
+  // Open a third tab and test closeOtherTabs
+  useApp.getState().openTab('terminal', 'Local', { kind: 'local' })
+  assert.equal(useApp.getState().tabs.length, 3)
+
+  useApp.getState().closeOtherTabs(initialTab.id)
+  const remainingTabs = useApp.getState().tabs
+  assert.equal(remainingTabs.length, 1)
+  assert.equal(remainingTabs[0].id, initialTab.id)
+  assert.equal(useApp.getState().activeTab, initialTab.id)
+})
+
+
 
 
 

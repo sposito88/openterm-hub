@@ -17,6 +17,7 @@ export interface WorkspaceTabPane {
   id: string
   target: SessionTarget
   title: string
+  themeOverride?: string
 }
 
 export interface Tab {
@@ -24,6 +25,7 @@ export interface Tab {
   kind: 'terminal' | 'sftp' | 'workspace'
   title: string
   target: SessionTarget
+  themeOverride?: string
   layout?: 'horizontal' | 'vertical'
   panes?: WorkspaceTabPane[]
   broadcast?: boolean
@@ -55,7 +57,10 @@ interface AppState {
   refresh(): Promise<void>
   setView(v: View): void
   openSettings(section: SettingsSection): void
-  openTab(kind: Tab['kind'], title: string, target: SessionTarget): void
+  openTab(kind: Tab['kind'], title: string, target: SessionTarget, themeOverride?: string): void
+  duplicateTab(tabId: string): void
+  setTabTheme(tabId: string, themeId: string | undefined): void
+  closeOtherTabs(tabId: string): void
   openWorkspace(workspace: any): void
   splitTab(tabId: string, direction: 'horizontal' | 'vertical', target: SessionTarget, title: string): void
   mergeTabs(sourceTabId: string, targetTabId: string, direction: 'horizontal' | 'vertical'): void
@@ -90,12 +95,65 @@ export const useApp = create<AppState>((set, get) => ({
   setView: (view) => set({ view, activeTab: null }),
   openSettings: (settingsSection) => set({ view: 'settings', settingsSection, activeTab: null }),
 
-  openTab: (kind, title, target) => {
+  openTab: (kind, title, target, themeOverride) => {
     const id = `tab-${++tabSeq}`
     set((s) => ({
-      tabs: [...s.tabs, { id, kind, title, target }],
+      tabs: [...s.tabs, { id, kind, title, target, themeOverride }],
       activeTab: id,
       lastTerminal: kind === 'terminal' ? id : s.lastTerminal
+    }))
+  },
+
+  duplicateTab: (tabId) => {
+    const tab = get().tabs.find((t) => t.id === tabId)
+    if (!tab) return
+    const id = `tab-${++tabSeq}`
+    if (tab.kind === 'terminal' || tab.kind === 'sftp') {
+      set((s) => ({
+        tabs: [...s.tabs, {
+          id,
+          kind: tab.kind,
+          title: tab.title,
+          target: tab.target,
+          themeOverride: tab.themeOverride
+        }],
+        activeTab: id,
+        lastTerminal: tab.kind === 'terminal' ? id : s.lastTerminal
+      }))
+    } else if (tab.kind === 'workspace') {
+      const clonedPanes = (tab.panes ?? []).map((p, idx) => ({
+        ...p,
+        id: `${id}-p${idx + 1}`
+      }))
+      set((s) => ({
+        tabs: [...s.tabs, {
+          id,
+          kind: 'workspace',
+          title: tab.title,
+          target: tab.target,
+          themeOverride: tab.themeOverride,
+          layout: tab.layout,
+          panes: clonedPanes,
+          broadcast: tab.broadcast,
+          splitRatio: tab.splitRatio
+        }],
+        activeTab: id,
+        lastTerminal: id
+      }))
+    }
+  },
+
+  setTabTheme: (tabId, themeId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, themeOverride: themeId } : t))
+    }))
+  },
+
+  closeOtherTabs: (tabId) => {
+    set((s) => ({
+      tabs: s.tabs.filter((t) => t.id === tabId),
+      activeTab: tabId,
+      lastTerminal: tabId
     }))
   },
 

@@ -17,6 +17,7 @@ import { Snippets } from './views/Snippets'
 import { TerminalTab } from './views/TerminalTab'
 import { Workspaces } from './views/Workspaces'
 import { WorkspaceTab } from './views/WorkspaceTab'
+import { findTerminalTheme, TERMINAL_THEMES } from './terminalThemes'
 
 const NAV: Array<{ view: View; icon: IconName; label: TKey }> = [
   { view: 'hosts', icon: 'server', label: 'hosts' },
@@ -118,9 +119,11 @@ export function App() {
   const t = useT()
   const snapshot = useApp((s) => s.snapshot)
   const uiLight = useUiLight()
-  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab, mergeTabs } = useApp()
+  const { view, tabs, activeTab, toasts, setView, activate, closeTab, openTab, mergeTabs, duplicateTab, splitTab, renameTab, setTabTheme, closeOtherTabs } = useApp()
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
   const [dropZone, setDropZone] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
+  const [tabContextMenu, setTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
+  const [themeSubmenu, setThemeSubmenu] = useState(false)
 
   useEffect(() => {
     void useApp.getState().refresh()
@@ -172,53 +175,76 @@ export function App() {
           <Icon name="folder" />
           <span>SFTP</span>
         </button>
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => activate(tab.id)}
-            onAuxClick={(e) => e.button === 1 && closeTab(tab.id)}
-            role="tab"
-            draggable={tab.kind === 'terminal' || tab.kind === 'workspace'}
-            onDragStart={(e) => {
-              e.dataTransfer.setData('text/openterm-tab', tab.id)
-              e.dataTransfer.effectAllowed = 'move'
-              setDraggingTabId(tab.id)
-            }}
-            onDragEnd={() => {
-              setDraggingTabId(null)
-              setDropZone(null)
-            }}
-            onDragOver={(e) => {
-              if (draggingTabId && draggingTabId !== tab.id) {
+        {tabs.map((tab) => {
+          const host = tab.target.kind === 'host' ? snapshot?.hosts.find((h) => h.id === (tab.target as { hostId: string }).hostId) : undefined
+          const themeId = tab.themeOverride ?? host?.theme
+          const themeObj = themeId ? findTerminalTheme(themeId, uiLight) : null
+
+          return (
+            <div
+              key={tab.id}
+              className={`tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => activate(tab.id)}
+              onDoubleClick={() => {
+                const newTitle = window.prompt(t('renameTab'), tab.title)
+                if (newTitle && newTitle.trim()) renameTab(tab.id, newTitle.trim())
+              }}
+              onAuxClick={(e) => e.button === 1 && closeTab(tab.id)}
+              onContextMenu={(e) => {
                 e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-              }
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              const srcId = e.dataTransfer.getData('text/openterm-tab')
-              if (srcId && srcId !== tab.id) {
-                mergeTabs(srcId, tab.id, 'horizontal')
-              }
-              setDraggingTabId(null)
-              setDropZone(null)
-            }}
-          >
-            <Icon name={tab.kind === 'sftp' ? 'folder' : tab.kind === 'workspace' ? 'workspace' : 'terminal'} />
-            <span>{tab.title}</span>
-            <button
-              className="tab-close"
-              title={t('close')}
-              onClick={(e) => {
                 e.stopPropagation()
-                closeTab(tab.id)
+                setTabContextMenu({ tabId: tab.id, x: e.clientX, y: e.clientY })
+                setThemeSubmenu(false)
+              }}
+              role="tab"
+              draggable={tab.kind === 'terminal' || tab.kind === 'workspace'}
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/openterm-tab', tab.id)
+                e.dataTransfer.effectAllowed = 'move'
+                setDraggingTabId(tab.id)
+              }}
+              onDragEnd={() => {
+                setDraggingTabId(null)
+                setDropZone(null)
+              }}
+              onDragOver={(e) => {
+                if (draggingTabId && draggingTabId !== tab.id) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                const srcId = e.dataTransfer.getData('text/openterm-tab')
+                if (srcId && srcId !== tab.id) {
+                  mergeTabs(srcId, tab.id, 'horizontal')
+                }
+                setDraggingTabId(null)
+                setDropZone(null)
               }}
             >
-              <Icon name="x" size={13} />
-            </button>
-          </div>
-        ))}
+              {themeObj && (
+                <span
+                  className="tab-theme-dot"
+                  style={{ backgroundColor: themeObj.colors.cursor || themeObj.colors.background }}
+                  title={`${t('terminalTheme')}: ${themeObj.name}`}
+                />
+              )}
+              <Icon name={tab.kind === 'sftp' ? 'folder' : tab.kind === 'workspace' ? 'workspace' : 'terminal'} />
+              <span>{tab.title}</span>
+              <button
+                className="tab-close"
+                title={t('close')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  closeTab(tab.id)
+                }}
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       <nav className="sidebar">
@@ -289,6 +315,127 @@ export function App() {
           </div>
         )}
       </main>
+
+      {tabContextMenu && (() => {
+        const targetTab = tabs.find((t) => t.id === tabContextMenu.tabId)
+        if (!targetTab) return null
+        const host = targetTab.target.kind === 'host' ? snapshot?.hosts.find((h) => h.id === (targetTab.target as { hostId: string }).hostId) : undefined
+        const activeThemeId = targetTab.themeOverride ?? host?.theme ?? snapshot?.settings.terminalTheme
+        const isTerminalLike = targetTab.kind === 'terminal' || targetTab.kind === 'workspace'
+
+        return (
+          <div
+            className="menu context-menu"
+            style={{ position: 'fixed', left: Math.min(tabContextMenu.x, window.innerWidth - 240), top: tabContextMenu.y, zIndex: 120 }}
+            onMouseLeave={() => {
+              setTabContextMenu(null)
+              setThemeSubmenu(false)
+            }}
+          >
+            <button
+              onClick={() => {
+                duplicateTab(targetTab.id)
+                setTabContextMenu(null)
+              }}
+            >
+              <Icon name="copy" size={14} /> {t('duplicate')}
+            </button>
+            <button
+              onClick={() => {
+                setTabContextMenu(null)
+                const newTitle = window.prompt(t('renameTab'), targetTab.title)
+                if (newTitle && newTitle.trim()) renameTab(targetTab.id, newTitle.trim())
+              }}
+            >
+              <Icon name="edit" size={14} /> {t('rename')}
+            </button>
+
+            {isTerminalLike && (
+              <>
+                <button
+                  onClick={() => {
+                    splitTab(targetTab.id, 'horizontal', targetTab.target, targetTab.title)
+                    setTabContextMenu(null)
+                  }}
+                >
+                  <Icon name="splitHorizontal" size={14} /> {t('splitHorizontal')}
+                </button>
+                <button
+                  onClick={() => {
+                    splitTab(targetTab.id, 'vertical', targetTab.target, targetTab.title)
+                    setTabContextMenu(null)
+                  }}
+                >
+                  <Icon name="splitVertical" size={14} /> {t('splitVertical')}
+                </button>
+                <hr />
+                <button
+                  onClick={() => setThemeSubmenu(!themeSubmenu)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name="palette" size={14} /> {t('sessionTheme')}
+                  </span>
+                  <span>{themeSubmenu ? '▴' : '▾'}</span>
+                </button>
+                {themeSubmenu && (
+                  <div style={{ paddingLeft: 8, maxHeight: 180, overflowY: 'auto' }}>
+                    <button
+                      className={!targetTab.themeOverride ? 'active' : ''}
+                      onClick={() => {
+                        setTabTheme(targetTab.id, undefined)
+                        setTabContextMenu(null)
+                        setThemeSubmenu(false)
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: findTerminalTheme(host?.theme ?? snapshot?.settings.terminalTheme ?? 'auto', uiLight).colors.background, border: '1px solid var(--border)' }} />
+                      <span>{t('defaultTheme')}</span>
+                      {!targetTab.themeOverride && <span style={{ marginLeft: 'auto' }}>✓</span>}
+                    </button>
+                    {TERMINAL_THEMES.map((th) => (
+                      <button
+                        key={th.id}
+                        className={activeThemeId === th.id ? 'active' : ''}
+                        onClick={() => {
+                          setTabTheme(targetTab.id, th.id)
+                          setTabContextMenu(null)
+                          setThemeSubmenu(false)
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                      >
+                        <span style={{ width: 10, height: 10, borderRadius: 2, background: th.colors.background, border: '1px solid var(--border)' }} />
+                        <span>{th.name}</span>
+                        {activeThemeId === th.id && <span style={{ marginLeft: 'auto' }}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            <hr />
+            <button
+              onClick={() => {
+                closeTab(targetTab.id)
+                setTabContextMenu(null)
+              }}
+            >
+              <Icon name="x" size={14} /> {t('close')}
+            </button>
+            {tabs.length > 1 && (
+              <button
+                onClick={() => {
+                  closeOtherTabs(targetTab.id)
+                  setTabContextMenu(null)
+                }}
+              >
+                <Icon name="x" size={14} /> {t('closeOtherTabs')}
+              </button>
+            )}
+          </div>
+        )
+      })()}
 
       <Prompts />
       <div className="toasts">

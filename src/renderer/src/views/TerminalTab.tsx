@@ -13,7 +13,7 @@ import { translate, useT } from '../i18n'
 import { LineTracker, trimTrailingSpaces } from '../lineTracker'
 import { subscribe, tabSessions, terminalActions } from '../sessionBus'
 import { useApp, useUiLight, type Tab } from '../state'
-import { findTerminalTheme } from '../terminalThemes'
+import { findTerminalTheme, TERMINAL_THEMES } from '../terminalThemes'
 import { openSftp } from './Hosts'
 import { runSnippet } from './Snippets'
 
@@ -36,7 +36,7 @@ interface Popup {
   bottom?: number
 }
 
-function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
+function termOptions(s: Settings, uiLight: boolean, activeThemeId?: string): ITerminalOptions {
   return {
     fontFamily: fontStack(s.fontFamily),
     fontSize: s.fontSize,
@@ -46,7 +46,7 @@ function termOptions(s: Settings, uiLight: boolean): ITerminalOptions {
     cursorStyle: s.cursorStyle,
     scrollback: s.scrollback,
     drawBoldTextInBrightColors: s.boldBright,
-    theme: findTerminalTheme(s.terminalTheme, uiLight).colors
+    theme: findTerminalTheme(activeThemeId || s.terminalTheme, uiLight).colors
   }
 }
 
@@ -174,22 +174,28 @@ export function TerminalTab(props: TerminalTabProps) {
   } = props
   const t = useT()
   const settings = useApp((s) => s.snapshot!.settings)
+  const setTabTheme = useApp((s) => s.setTabTheme)
   const uiLight = useUiLight()
   const snippets = useApp((s) => s.snapshot!.snippets)
   const effectiveTarget = paneTarget || tab.target
   const host = useApp((s) => (effectiveTarget.kind === 'host' ? s.snapshot!.hosts.find((h) => h.id === (effectiveTarget as { hostId: string }).hostId) : undefined))
+  const activeThemeId = (paneId ? tab.panes?.find((p) => p.id === paneId)?.themeOverride : undefined) ?? tab.themeOverride ?? host?.theme ?? settings.terminalTheme
+  const currentTheme = findTerminalTheme(activeThemeId, uiLight)
   const hostEl = useRef<HTMLDivElement>(null)
   const wrapEl = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const settingsRef = useRef(settings)
-  const prevVisualKeyRef = useRef(`${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${settings.terminalTheme}|${uiLight}`)
+  const prevVisualKeyRef = useRef(`${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${activeThemeId}|${uiLight}`)
   const popupRef = useRef<Popup | null>(null)
   const acceptRef = useRef<(s: Suggestion) => void>(() => {})
+  const pasteRef = useRef<(() => void) | null>(null)
   const [popup, setPopupState] = useState<Popup | null>(null)
   const [searching, setSearching] = useState(false)
   const [snippetMenu, setSnippetMenu] = useState(false)
+  const [themeMenu, setThemeMenu] = useState(false)
+  const [termContextMenu, setTermContextMenu] = useState<{ x: number; y: number } | null>(null)
   settingsRef.current = settings
 
   const sKey = paneId || tab.id
@@ -339,6 +345,7 @@ export function TerminalTab(props: TerminalTabProps) {
       const paste = (): void => {
         void navigator.clipboard.readText().then((text) => text && term.paste(text))
       }
+      pasteRef.current = paste
 
       const cancelReconnect = (): void => {
         clearInterval(reconnectTimer)
@@ -505,9 +512,12 @@ export function TerminalTab(props: TerminalTabProps) {
     }
 
     const onContextMenu = (e: MouseEvent): void => {
-      if (!settingsRef.current.copyOnSelect) return
       e.preventDefault()
-      paste()
+      if (settingsRef.current.copyOnSelect) {
+        paste()
+      } else {
+        setTermContextMenu({ x: e.clientX, y: e.clientY })
+      }
     }
     hostEl.current!.addEventListener('contextmenu', onContextMenu)
 
@@ -566,20 +576,20 @@ export function TerminalTab(props: TerminalTabProps) {
   useEffect(() => {
     const term = termRef.current
     if (!term) return
-    const visualKey = `${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${settings.terminalTheme}|${uiLight}`
+    const visualKey = `${settings.fontFamily}|${settings.fontSize}|${settings.boldBright}|${activeThemeId}|${uiLight}`
     const visualChanged = prevVisualKeyRef.current !== visualKey
     prevVisualKeyRef.current = visualKey
     let cancelled = false
     void ensureFontLoaded(settings.fontFamily, settings.fontSize).then((newlyLoaded) => {
       if (cancelled) return
-      Object.assign(term.options, termOptions(settings, uiLight))
+      Object.assign(term.options, termOptions(settings, uiLight, activeThemeId))
       if (visualChanged || newlyLoaded) clearAllTextureAtlases()
       fitTerminal(term, fitRef.current, hostEl.current)
     })
     return () => {
       cancelled = true
     }
-  }, [settings, uiLight])
+  }, [settings, activeThemeId, uiLight])
 
   useEffect(() => {
     if (!active) return
@@ -596,7 +606,7 @@ export function TerminalTab(props: TerminalTabProps) {
     termRef.current?.focus()
   }
 
-  const termBg = findTerminalTheme(settings.terminalTheme, uiLight).colors.background
+  const termBg = currentTheme.colors.background
 
   const displayLabel = host?.label || paneTitle || tab.title
   const displaySub = host
@@ -625,6 +635,44 @@ export function TerminalTab(props: TerminalTabProps) {
                 <span>Broadcast</span>
               </button>
             )}
+            <div style={{ position: 'relative' }}>
+              <button className="btn small icon" title={t('sessionTheme')} onClick={() => setThemeMenu(!themeMenu)}>
+                <Icon name="palette" size={13} />
+              </button>
+              {themeMenu && (
+                <div className="menu" style={{ right: 0, left: 'auto', top: 26, maxHeight: 280, overflowY: 'auto', zIndex: 100 }} onMouseLeave={() => setThemeMenu(false)}>
+                  <div className="menu-group">{t('sessionTheme')}</div>
+                  <button
+                    className={!tab.themeOverride ? 'active' : ''}
+                    onClick={() => {
+                      setThemeMenu(false)
+                      setTabTheme(tab.id, undefined)
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <span style={{ width: 12, height: 12, borderRadius: 2, background: findTerminalTheme(host?.theme ?? settings.terminalTheme, uiLight).colors.background, border: '1px solid var(--border)' }} />
+                    <span>{t('defaultTheme')}</span>
+                    {!tab.themeOverride && <span style={{ marginLeft: 'auto' }}>✓</span>}
+                  </button>
+                  <hr />
+                  {TERMINAL_THEMES.map((th) => (
+                    <button
+                      key={th.id}
+                      className={activeThemeId === th.id ? 'active' : ''}
+                      onClick={() => {
+                        setThemeMenu(false)
+                        setTabTheme(tab.id, th.id)
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={{ width: 12, height: 12, borderRadius: 2, background: th.colors.background, border: '1px solid var(--border)' }} />
+                      <span>{th.name}</span>
+                      {activeThemeId === th.id && <span style={{ marginLeft: 'auto' }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             {onSplit && (
               <>
                 <button className="btn small icon" title={t('splitHorizontal')} onClick={() => onSplit('horizontal')}>
@@ -673,6 +721,44 @@ export function TerminalTab(props: TerminalTabProps) {
         <button className="btn small" onClick={() => setSearching(true)}>
           <Icon name="search" /> {t('findInTerminal')}
         </button>
+        <div style={{ position: 'relative' }}>
+          <button className="btn small" onClick={() => setThemeMenu(!themeMenu)} title={t('sessionTheme')}>
+            <Icon name="palette" size={13} /> {currentTheme.name}
+          </button>
+          {themeMenu && (
+            <div className="menu" style={{ left: 0, top: 30, maxHeight: 300, overflowY: 'auto', zIndex: 100 }} onMouseLeave={() => setThemeMenu(false)}>
+              <div className="menu-group">{t('sessionTheme')}</div>
+              <button
+                className={!tab.themeOverride ? 'active' : ''}
+                onClick={() => {
+                  setThemeMenu(false)
+                  setTabTheme(tab.id, undefined)
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <span style={{ width: 12, height: 12, borderRadius: 2, background: findTerminalTheme(host?.theme ?? settings.terminalTheme, uiLight).colors.background, border: '1px solid var(--border)' }} />
+                <span>{t('defaultTheme')} ({findTerminalTheme(host?.theme ?? settings.terminalTheme, uiLight).name})</span>
+                {!tab.themeOverride && <span style={{ marginLeft: 'auto' }}>✓</span>}
+              </button>
+              <hr />
+              {TERMINAL_THEMES.map((th) => (
+                <button
+                  key={th.id}
+                  className={activeThemeId === th.id ? 'active' : ''}
+                  onClick={() => {
+                    setThemeMenu(false)
+                    setTabTheme(tab.id, th.id)
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                >
+                  <span style={{ width: 12, height: 12, borderRadius: 2, background: th.colors.background, border: '1px solid var(--border)' }} />
+                  <span>{th.name}</span>
+                  {activeThemeId === th.id && <span style={{ marginLeft: 'auto' }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {host?.protocol === 'ssh' && (
           <button className="btn small" onClick={() => openSftp(host)}>
             <Icon name="folder" /> {t('sftp')}
@@ -722,6 +808,50 @@ export function TerminalTab(props: TerminalTabProps) {
           </div>
         )}
       </div>
+      {termContextMenu && (
+        <div
+          className="menu context-menu"
+          style={{ position: 'fixed', left: termContextMenu.x, top: termContextMenu.y, zIndex: 100 }}
+          onMouseLeave={() => setTermContextMenu(null)}
+        >
+          <button
+            onClick={() => {
+              setTermContextMenu(null)
+              if (termRef.current?.hasSelection()) {
+                void navigator.clipboard.writeText(termRef.current.getSelection())
+              }
+            }}
+            disabled={!termRef.current?.hasSelection()}
+          >
+            <Icon name="copy" size={14} /> {t('copy')}
+          </button>
+          <button
+            onClick={() => {
+              setTermContextMenu(null)
+              pasteRef.current?.()
+            }}
+          >
+            <Icon name="import" size={14} /> {t('paste')}
+          </button>
+          <button
+            onClick={() => {
+              setTermContextMenu(null)
+              termRef.current?.selectAll()
+            }}
+          >
+            <Icon name="keyboard" size={14} /> {t('selectAll')}
+          </button>
+          <hr />
+          <button
+            onClick={() => {
+              setTermContextMenu(null)
+              termRef.current?.clear()
+            }}
+          >
+            <Icon name="trash" size={14} /> {t('clear')}
+          </button>
+        </div>
+      )}
     </>
   )
 }

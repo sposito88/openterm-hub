@@ -6,6 +6,7 @@ import { HostBadge, OS_LIST } from '../components/OsIcon'
 import { Check, Drawer, Field, FormActions } from '../components/ui'
 import { useT } from '../i18n'
 import { attempt, useApp } from '../state'
+import { TERMINAL_THEMES } from '../terminalThemes'
 import { IdentityEditor } from './Identities'
 
 const DEFAULT_PORT: Record<Protocol, number> = { ssh: 22, mosh: 22, telnet: 23 }
@@ -22,6 +23,7 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
     username: host?.username ?? '',
     protocol: host?.protocol ?? 'ssh',
     os: host?.os ?? null,
+    theme: host?.theme ?? null,
     keyId: host?.keyId ?? null,
     identityId: host?.identityId ?? null,
     useAgent: host?.useAgent ?? true,
@@ -93,6 +95,20 @@ export function HostEditor({ host, initialGroup = '', onClose }: { host: Host | 
               ))}
             </select>
           </div>
+        </Field>
+        <Field label={t('terminalTheme')}>
+          <select
+            className="input"
+            value={form.theme ?? ''}
+            onChange={(e) => set('theme', e.target.value || null)}
+          >
+            <option value="">{t('defaultTheme')}</option>
+            {TERMINAL_THEMES.map((th) => (
+              <option key={th.id} value={th.id}>
+                {th.name}
+              </option>
+            ))}
+          </select>
         </Field>
         <div className="row">
           <Field label={t('address')}>

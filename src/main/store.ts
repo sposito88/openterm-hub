@@ -91,6 +91,7 @@ export class Store {
       ...h,
       group: normalizeGroup(h.group ?? ''),
       os: h.os ?? null,
+      theme: h.theme ?? null,
       identityId: h.identityId ?? null
     }))
     const groupSet = new Set<string>((this.data.groups ?? []).map(normalizeGroup).filter(Boolean))
@@ -208,7 +209,7 @@ export class Store {
       this.data.groups.push(normalizedGroup)
       this.data.groups.sort((a, b) => a.localeCompare(b))
     }
-    return this.upsert('hosts', { ...host, group: normalizedGroup, os: host.os ?? null })
+    return this.upsert('hosts', { ...host, group: normalizedGroup, os: host.os ?? null, theme: host.theme ?? null })
   }
 
   saveGroup(name: string, previousName?: string, hostIds?: string[]): void {

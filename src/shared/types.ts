@@ -35,6 +35,8 @@ export interface Host {
   protocol: Protocol
   /** Operating system icon identifier (detected automatically on SSH connect or chosen manually). */
   os?: OsId | null
+  /** Optional terminal theme override for this host (e.g. for PRD vs HML visual distinction). */
+  theme?: string | null
   /** Saved password, stored encrypted on disk. Never sent back to the renderer. */
   hasPassword: boolean
   keyId: string | null
@@ -162,7 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autocomplete: true,
   autoReconnect: true,
   importShellHistory: true,
-  copyOnSelect: false,
+  copyOnSelect: true,
   bellSound: false,
   boldBright: false,
   sessionLogging: false,

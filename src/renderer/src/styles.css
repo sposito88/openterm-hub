@@ -162,6 +162,15 @@ button {
   text-overflow: ellipsis;
 }
 
+.tab-theme-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 .tab:hover {
   color: var(--text);
 }
