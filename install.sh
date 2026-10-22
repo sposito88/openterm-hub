@@ -59,11 +59,15 @@ ARCH=$(uname -m)
 MODE=""
 case "$OS" in
   Linux)
-    [ "$ARCH" = "x86_64" ] || die "Linux $ARCH ainda não tem build oficial (só x86_64). Rode a partir do código: https://github.com/$REPO"
+    case "$ARCH" in
+      x86_64|amd64) DEB_ARCH=amd64; IMG_ARCH=x86_64 ;;
+      aarch64|arm64) DEB_ARCH=arm64; IMG_ARCH=arm64 ;;
+      *) die "Linux $ARCH ainda não tem build oficial (só x86_64 e arm64). Rode a partir do código: https://github.com/$REPO" ;;
+    esac
     if [ -z "${OPENTERM_APPIMAGE:-}" ] && has apt-get && has dpkg; then
-      MODE=deb; PATTERN='-linux-amd64\.deb$'
+      MODE=deb; PATTERN="-linux-$DEB_ARCH\\.deb\$"
     else
-      MODE=appimage; PATTERN='-linux-x86_64\.AppImage$'
+      MODE=appimage; PATTERN="-linux-$IMG_ARCH\\.AppImage\$"
     fi
     ;;
   Darwin)

@@ -39,7 +39,7 @@ Os instaladores ficam na página de [Releases](https://github.com/sposito88/open
 |---|---|
 | Windows | `openterm-hub-<versão>-setup-x64.exe` (instalador) ou `…-portable-x64.exe` (sem instalar). Também roda no Windows ARM por emulação. |
 | macOS | `…-mac-arm64.dmg` (Apple Silicon) ou `…-mac-x64.dmg` (Intel) |
-| Linux | `…-linux-amd64.deb` (Debian/Ubuntu) ou `…-linux-x86_64.AppImage` |
+| Linux | `…-linux-amd64.deb` (Debian/Ubuntu) ou `…-linux-x86_64.AppImage`; em ARM64 (Raspberry Pi 4/5 com sistema 64 bits, notebooks ARM), `…-linux-arm64.deb` ou `…-linux-arm64.AppImage` |
 
 Os binários ainda não são assinados. Na primeira execução:
 - **Windows:** em "O Windows protegeu o computador", clique em *Mais informações → Executar assim mesmo*.

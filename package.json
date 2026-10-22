@@ -30,6 +30,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "postinstall": "node scripts/postinstall.mjs",
     "dist": "npm run build && electron-builder --linux -c.directories.output=dist/linux",
+    "dist:linux-arm64": "npm run build && electron-builder --linux --arm64 -c.directories.output=dist/linux",
     "notices": "node scripts/notices.mjs",
     "dist:win": "npm run build && electron-builder --win -c.directories.output=dist/windows",
     "dist:mac": "npm run build && electron-builder --mac -c.directories.output=dist/mac"

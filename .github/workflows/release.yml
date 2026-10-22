@@ -18,6 +18,9 @@ jobs:
         include:
           - os: ubuntu-latest
             script: dist
+          # Native ARM machine: node-pty is compiled for arm64 there, no cross toolchain.
+          - os: ubuntu-24.04-arm
+            script: dist:linux-arm64
           - os: windows-latest
             script: dist:win
           - os: macos-latest
