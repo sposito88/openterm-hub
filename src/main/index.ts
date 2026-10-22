@@ -235,6 +235,7 @@ app.whenReady().then(() => {
   type Handlers = { [K in keyof OpenTermApi]?: (...args: Parameters<OpenTermApi[K]>) => unknown }
   const handlers: Handlers = {
     getSnapshot: () => store.snapshot(),
+    appVersion: () => app.getVersion(),
     getHostPassword: (hostId: string) => store.getSecret(`host:${hostId}:password`) ?? '',
     saveHost: (input) => {
       const host = store.saveHost(cleanHost(input, store))

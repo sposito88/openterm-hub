@@ -319,6 +319,8 @@ export interface SerialPortInfo {
 
 export interface OpenTermApi {
   getSnapshot(): Promise<Snapshot>
+  /** Version of the running app (from its package.json). */
+  appVersion(): Promise<string>
   getHostPassword(hostId: string): Promise<string>
   touchHost(id: string): void
   saveHost(host: HostInput): Promise<Host>

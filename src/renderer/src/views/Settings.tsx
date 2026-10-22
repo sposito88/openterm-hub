@@ -479,6 +479,9 @@ function BackupSection() {
 
 function AboutSection() {
   const t = useT()
+  const [version, setVersion] = useState('')
+  // Read from the running app: a number typed here went stale release after release.
+  useEffect(() => void api.appVersion().then(setVersion), [])
   const links: Array<[TKey, string]> = [
     ['documentation', `${REPO}#readme`],
     ['requestFeature', `${REPO}/issues/new?labels=enhancement`],
@@ -489,7 +492,7 @@ function AboutSection() {
     <div className="panel">
       <div className="setting-row">
         <div>
-          <div className="label">OpenTerm Hub 0.3.7</div>
+          <div className="label">OpenTerm Hub {version}</div>
           <div className="hint">{t('aboutText')}</div>
         </div>
       </div>
