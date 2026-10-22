@@ -92,7 +92,8 @@ export class Store {
       group: normalizeGroup(h.group ?? ''),
       os: h.os ?? null,
       theme: h.theme ?? null,
-      identityId: h.identityId ?? null
+      identityId: h.identityId ?? null,
+      lastConnectedAt: h.lastConnectedAt ?? null
     }))
     const groupSet = new Set<string>((this.data.groups ?? []).map(normalizeGroup).filter(Boolean))
     for (const h of this.data.hosts) {
@@ -209,7 +210,21 @@ export class Store {
       this.data.groups.push(normalizedGroup)
       this.data.groups.sort((a, b) => a.localeCompare(b))
     }
-    return this.upsert('hosts', { ...host, group: normalizedGroup, os: host.os ?? null, theme: host.theme ?? null })
+    const existing = host.id ? this.data.hosts.find((h) => h.id === host.id) : undefined
+    return this.upsert('hosts', {
+      ...host,
+      group: normalizedGroup,
+      os: host.os ?? null,
+      theme: host.theme ?? null,
+      lastConnectedAt: host.lastConnectedAt ?? existing?.lastConnectedAt ?? null
+    })
+  }
+
+  touchHost(id: string): void {
+    const host = this.data.hosts.find((h) => h.id === id)
+    if (!host) return
+    host.lastConnectedAt = Date.now()
+    this.commit()
   }
 
   saveGroup(name: string, previousName?: string, hostIds?: string[]): void {

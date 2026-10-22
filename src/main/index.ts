@@ -311,12 +311,19 @@ app.whenReady().then(() => {
       store.importBackup(raw)
       return 'backup'
     },
-    openSession: (target: SessionTarget, cols, rows) => sessions.open(target, cols, rows),
+    openSession: (target: SessionTarget, cols, rows) => {
+      if (target.kind === 'host') store.touchHost(target.hostId)
+      return sessions.open(target, cols, rows)
+    },
     writeSession: (id, data) => sessions.write(id, data),
     resizeSession: (id, cols, rows) => sessions.resize(id, cols, rows),
     closeSession: (id) => sessions.close(id),
     listSerialPorts: () => Sessions.serialPorts(),
-    sftpOpen: (hostId) => sftp.open(hostId),
+    touchHost: (id: string) => store.touchHost(id),
+    sftpOpen: (hostId) => {
+      store.touchHost(hostId)
+      return sftp.open(hostId)
+    },
     sftpList: (id, path) => sftp.list(id, path),
     sftpMkdir: (id, path) => sftp.mkdir(id, path),
     sftpRename: (id, from, to) => sftp.rename(id, from, to),

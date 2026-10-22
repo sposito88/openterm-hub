@@ -494,3 +494,25 @@ test('sidebar auto-hides when terminal tab opens and can be toggled', async () =
   assert.equal(useApp.getState().sidebarInVault, true)
 })
 
+test('hosts are sorted by lastConnectedAt (most recent on top) with alphabetical fallback', async () => {
+  const hosts = [
+    { id: '1', label: 'Bravo', lastConnectedAt: 1000 },
+    { id: '2', label: 'Alpha', lastConnectedAt: 2000 },
+    { id: '3', label: 'Delta', lastConnectedAt: null },
+    { id: '4', label: 'Charlie', lastConnectedAt: null }
+  ]
+
+  // Recent sort: most recently connected first (Alpha: 2000, Bravo: 1000), then remaining A-Z (Charlie, Delta)
+  const sortedRecent = [...hosts].sort((a, b) => {
+    const timeA = a.lastConnectedAt ?? 0
+    const timeB = b.lastConnectedAt ?? 0
+    if (timeA !== timeB) return timeB - timeA
+    return a.label.localeCompare(b.label)
+  })
+  assert.deepEqual(sortedRecent.map((h) => h.label), ['Alpha', 'Bravo', 'Charlie', 'Delta'])
+
+  // Name sort: purely alphabetical (Alpha, Bravo, Charlie, Delta)
+  const sortedName = [...hosts].sort((a, b) => a.label.localeCompare(b.label))
+  assert.deepEqual(sortedName.map((h) => h.label), ['Alpha', 'Bravo', 'Charlie', 'Delta'])
+})
+

@@ -19,7 +19,8 @@ const invoke = [
 /** Fire-and-forget calls (hot paths such as keystrokes). */
 const fire = [
   'writeSession', 'resizeSession', 'closeSession', 'sftpClose',
-  'recordHistory', 'answerHostKey', 'answerCredential', 'openExternal'
+  'recordHistory', 'answerHostKey', 'answerCredential', 'openExternal',
+  'touchHost'
 ] as const
 
 function on(channel: string) {

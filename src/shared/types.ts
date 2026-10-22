@@ -47,6 +47,7 @@ export interface Host {
   jumpHostId: string | null
   startupSnippetId: string | null
   tags: string[]
+  lastConnectedAt?: number | null
 }
 
 export interface HostInput extends Omit<Host, 'id' | 'hasPassword'> {
@@ -319,6 +320,7 @@ export interface SerialPortInfo {
 export interface OpenTermApi {
   getSnapshot(): Promise<Snapshot>
   getHostPassword(hostId: string): Promise<string>
+  touchHost(id: string): void
   saveHost(host: HostInput): Promise<Host>
   deleteHost(id: string): Promise<void>
   saveGroup(name: string, previousName?: string, hostIds?: string[]): Promise<void>

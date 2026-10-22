@@ -11,11 +11,26 @@ import { HostEditor } from './HostEditor'
 const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
 
 export function connectHost(host: Host): void {
+  api.touchHost(host.id)
   useApp.getState().openTab('terminal', host.label, { kind: 'host', hostId: host.id }, host.theme ?? undefined)
 }
 
 export function openSftp(host: Host): void {
+  api.touchHost(host.id)
   useApp.getState().openTab('sftp', `SFTP · ${host.label}`, { kind: 'host', hostId: host.id })
+}
+
+function formatRelativeTime(ts: number, lang: 'pt' | 'en'): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (diffSec < 60) return lang === 'pt' ? 'agora mesmo' : 'just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return lang === 'pt' ? `há ${diffMin} min` : `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return lang === 'pt' ? `há ${diffHr} h` : `${diffHr}h ago`
+  const diffDays = Math.floor(diffHr / 24)
+  if (diffDays < 30) return lang === 'pt' ? `há ${diffDays} d` : `${diffDays}d ago`
+  const d = new Date(ts)
+  return d.toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: '2-digit' })
 }
 
 export function openLocal(): void {
@@ -252,6 +267,21 @@ export function Hosts() {
   const snap = useApp((s) => s.snapshot)!
   const [query, setQuery] = useState('')
   const [currentGroup, setCurrentGroup] = useState('')
+  const [hostSort, setHostSort] = useState<'recent' | 'name'>(() => {
+    try {
+      return (localStorage.getItem('openterm:hostSort') as 'recent' | 'name') || 'recent'
+    } catch {
+      return 'recent'
+    }
+  })
+
+  const setSortMode = (mode: 'recent' | 'name'): void => {
+    setHostSort(mode)
+    try {
+      localStorage.setItem('openterm:hostSort', mode)
+    } catch {}
+  }
+
   const [editing, setEditing] = useState<Host | null | undefined>(undefined)
   const [editingGroup, setEditingGroup] = useState<{ path: string | null; parent: string } | undefined>(undefined)
   const [serial, setSerial] = useState(false)
@@ -329,8 +359,17 @@ export function Hosts() {
       const g = normalizeGroupPath(h.group)
       return g === currentGroup || g.startsWith(currentGroup + ' / ')
     }
-    return snap.hosts.filter((h) => matchGroup(h) && matchQuery(h)).sort((a, b) => a.label.localeCompare(b.label))
-  }, [snap.hosts, snap.identities, currentGroup, query])
+    return snap.hosts
+      .filter((h) => matchGroup(h) && matchQuery(h))
+      .sort((a, b) => {
+        if (hostSort === 'recent') {
+          const timeA = a.lastConnectedAt ?? 0
+          const timeB = b.lastConnectedAt ?? 0
+          if (timeA !== timeB) return timeB - timeA
+        }
+        return a.label.localeCompare(b.label)
+      })
+  }, [snap.hosts, snap.identities, currentGroup, query, hostSort])
 
   const removeHost = async (h: Host): Promise<void> => {
     if (confirm(`${t('confirmDelete')}\n${h.label}`)) await attempt(() => api.deleteHost(h.id))
@@ -396,7 +435,42 @@ export function Hosts() {
           <Icon name="plug" size={15} /> {t('serial')}
         </button>
 
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="btn-group" style={{ display: 'inline-flex', borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <button
+              type="button"
+              className="btn small"
+              style={{
+                borderRadius: 0,
+                border: 0,
+                borderRight: '1px solid var(--border)',
+                background: hostSort === 'recent' ? 'var(--bg-hover)' : 'var(--bg-elev)',
+                color: hostSort === 'recent' ? 'var(--text)' : 'var(--text-dim)',
+                boxShadow: hostSort === 'recent' ? 'inset 0 -2px 0 var(--accent)' : 'none'
+              }}
+              onClick={() => setSortMode('recent')}
+              title={t('sortRecent')}
+            >
+              <Icon name="clock" size={13} />
+              <span>{t('sortRecent')}</span>
+            </button>
+            <button
+              type="button"
+              className="btn small"
+              style={{
+                borderRadius: 0,
+                border: 0,
+                background: hostSort === 'name' ? 'var(--bg-hover)' : 'var(--bg-elev)',
+                color: hostSort === 'name' ? 'var(--text)' : 'var(--text-dim)',
+                boxShadow: hostSort === 'name' ? 'inset 0 -2px 0 var(--accent)' : 'none'
+              }}
+              onClick={() => setSortMode('name')}
+              title={t('sortName')}
+            >
+              <Icon name="server" size={13} />
+              <span>{t('sortName')}</span>
+            </button>
+          </div>
           <input className="input search" placeholder={t('search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
@@ -478,6 +552,7 @@ export function Hosts() {
                   <div className="card-title">{h.label}</div>
                   <div className="card-sub">
                     {h.protocol}, {userOf(h) || h.hostname}
+                    {h.lastConnectedAt ? <span className="dim" style={{ marginLeft: 6 }}>· {formatRelativeTime(h.lastConnectedAt, snap.settings.language)}</span> : null}
                   </div>
                   {h.tags.length > 0 && (
                     <div>
