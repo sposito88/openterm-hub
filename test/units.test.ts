@@ -420,7 +420,52 @@ test('tab duplication, theme override and closing other tabs', async () => {
   assert.equal(useApp.getState().activeTab, initialTab.id)
 })
 
+test('SFTP entries sorting: folders first, A-Z / Z-A, mtime, and size', async () => {
+  const { sortEntries } = await import('../src/renderer/src/views/SftpTab')
+  const mockFiles = [
+    { name: 'zeta.txt', path: '/zeta.txt', isDir: false, isLink: false, size: 500, mtime: 1000, mode: 0o644 },
+    { name: 'alpha.txt', path: '/alpha.txt', isDir: false, isLink: false, size: 2000, mtime: 3000, mode: 0o644 },
+    { name: 'beta-dir', path: '/beta-dir', isDir: true, isLink: false, size: 0, mtime: 2000, mode: 0o755 },
+    { name: 'alpha-dir', path: '/alpha-dir', isDir: true, isLink: false, size: 0, mtime: 4000, mode: 0o755 }
+  ]
 
+  // Name asc (A-Z) -> folders first (alpha-dir, beta-dir), then files (alpha.txt, zeta.txt)
+  const byNameAsc = sortEntries(mockFiles, 'name', 'asc', () => 'Arquivo')
+  assert.deepEqual(byNameAsc.map((x) => x.name), ['alpha-dir', 'beta-dir', 'alpha.txt', 'zeta.txt'])
 
+  // Name desc (Z-A) -> folders first (beta-dir, alpha-dir), then files (zeta.txt, alpha.txt)
+  const byNameDesc = sortEntries(mockFiles, 'name', 'desc', () => 'Arquivo')
+  assert.deepEqual(byNameDesc.map((x) => x.name), ['beta-dir', 'alpha-dir', 'zeta.txt', 'alpha.txt'])
 
+  // Size desc -> folders first, then files largest to smallest (alpha.txt: 2000, zeta.txt: 500)
+  const bySizeDesc = sortEntries(mockFiles, 'size', 'desc', () => 'Arquivo')
+  assert.equal(bySizeDesc[2].name, 'alpha.txt')
+  assert.equal(bySizeDesc[3].name, 'zeta.txt')
+
+  // Mtime desc (newest first) -> folders first (alpha-dir: 4000, beta-dir: 2000), then files (alpha.txt: 3000, zeta.txt: 1000)
+  const byMtimeDesc = sortEntries(mockFiles, 'mtime', 'desc', () => 'Arquivo')
+  assert.deepEqual(byMtimeDesc.map((x) => x.name), ['alpha-dir', 'beta-dir', 'alpha.txt', 'zeta.txt'])
+})
+
+test('SFTP transfer cancellation aborts controller and removes from active transfers', async () => {
+  const { Sftp } = await import('../src/main/sftp')
+  const progressEvents: Array<{ channel: string; payload: any }> = []
+  const sftp = new Sftp(
+    {} as any,
+    (channel, payload) => {
+      progressEvents.push({ channel, payload })
+    },
+    async () => {}
+  )
+  const ctrl = new AbortController()
+  ;(sftp as any).activeTransfers.set('tx-123', ctrl)
+  assert.equal(ctrl.signal.aborted, false)
+  sftp.cancel('tx-123')
+  assert.equal(ctrl.signal.aborted, true)
+  assert.equal((sftp as any).activeTransfers.has('tx-123'), false)
+  assert.equal(progressEvents.length, 1)
+  assert.equal(progressEvents[0].channel, 'sftp:progress')
+  assert.equal(progressEvents[0].payload.done, true)
+  assert.equal(progressEvents[0].payload.error, 'Transferência cancelada')
+})
 

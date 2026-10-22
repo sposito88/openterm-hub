@@ -32,8 +32,10 @@ export function launch(started: Promise<void>, timeoutMs = 10_000): Promise<void
   return Promise.race([started, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))])
 }
 
-const COPY_CHUNK = 32 * 1024
+const COPY_CHUNK = 64 * 1024
 const COPY_PARALLEL = 32
+const SFTP_CONCURRENCY = 64
+const SFTP_CHUNK_SIZE = 64 * 1024
 
 /**
  * Server-to-server file copy with many reads in flight, like fastGet/fastPut:
@@ -46,7 +48,8 @@ async function copyFileBetween(
   to: string,
   size: number,
   mode: number,
-  progress: (copied: number) => void
+  progress: (copied: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const rh = await p<Buffer>((cb) => src.open(from, 'r', cb))
   const wh = await p<Buffer>((cb) => dst.open(to, 'w', { mode }, cb))
@@ -56,12 +59,14 @@ async function copyFileBetween(
     new Promise((resolve, reject) => src.read(rh, buf, 0, len, pos, (err, n) => (err ? reject(err) : resolve(n))))
   const worker = async (): Promise<void> => {
     while (next < size) {
+      if (signal?.aborted) throw new Error('Transferência cancelada')
       const pos = next
       const len = Math.min(COPY_CHUNK, size - pos)
       next += len
       const buf = Buffer.allocUnsafe(len)
       // A server may return fewer bytes than asked: keep reading until the chunk is full.
       for (let got = 0; got < len; ) {
+        if (signal?.aborted) throw new Error('Transferência cancelada')
         const n = await readAt(buf.subarray(got), pos + got, len - got)
         if (n <= 0) throw new Error('Leitura interrompida')
         got += n
@@ -98,12 +103,30 @@ interface Conn {
 
 export class Sftp {
   private conns = new Map<string, Conn>()
+  private activeTransfers = new Map<string, AbortController>()
 
   constructor(
     private deps: SshDeps,
     private send: Send,
     private opener: Opener
   ) {}
+
+  cancel(id: string): void {
+    const ctrl = this.activeTransfers.get(id)
+    if (ctrl) {
+      ctrl.abort()
+      this.activeTransfers.delete(id)
+      this.send('sftp:progress', {
+        transferId: id,
+        name: '',
+        direction: 'upload',
+        transferred: 0,
+        total: 0,
+        done: true,
+        error: 'Transferência cancelada'
+      })
+    }
+  }
 
   private conn(id: string): Conn {
     const c = this.conns.get(id)
@@ -223,12 +246,16 @@ export class Sftp {
     return this.transfer('upload', name, async (step) => {
       const total = await localSize(localPath)
       const put = async (src: string, dst: string): Promise<void> => {
+        if (step.signal.aborted) throw new Error('Transferência cancelada')
         const st = await fs.stat(src)
         if (st.isDirectory()) {
           await p<void>((cb) => sftp.mkdir(dst, cb)).catch(() => {})
-          for (const child of await fs.readdir(src)) await put(join(src, child), posix.join(dst, child))
+          for (const child of await fs.readdir(src)) {
+            if (step.signal.aborted) throw new Error('Transferência cancelada')
+            await put(join(src, child), posix.join(dst, child))
+          }
         } else {
-          await p<void>((cb) => sftp.fastPut(src, dst, { step: step.file }, cb))
+          await p<void>((cb) => sftp.fastPut(src, dst, { concurrency: SFTP_CONCURRENCY, chunkSize: SFTP_CHUNK_SIZE, step: step.file }, cb))
           step.commit(st.size)
         }
       }
@@ -243,13 +270,17 @@ export class Sftp {
     return this.transfer('download', name, async (step) => {
       const total = await this.remoteSize(sftp, remotePath)
       const get = async (src: string, dst: string): Promise<void> => {
+        if (step.signal.aborted) throw new Error('Transferência cancelada')
         const st = await p<Stats>((cb) => sftp.stat(src, cb))
         if (st.isDirectory()) {
           await fs.mkdir(dst, { recursive: true })
           const items = await p<FileEntryWithStats[]>((cb) => sftp.readdir(src, cb))
-          for (const it of items) await get(posix.join(src, it.filename), join(dst, it.filename))
+          for (const it of items) {
+            if (step.signal.aborted) throw new Error('Transferência cancelada')
+            await get(posix.join(src, it.filename), join(dst, it.filename))
+          }
         } else {
-          await p<void>((cb) => sftp.fastGet(src, dst, { step: step.file }, cb))
+          await p<void>((cb) => sftp.fastGet(src, dst, { concurrency: SFTP_CONCURRENCY, chunkSize: SFTP_CHUNK_SIZE, step: step.file }, cb))
           step.commit(st.size)
         }
       }
@@ -269,6 +300,7 @@ export class Sftp {
       const dirs: string[] = []
       const files: Array<{ rel: string; size: number; mode: number }> = []
       const walk = async (rel: string): Promise<void> => {
+        if (step.signal.aborted) throw new Error('Transferência cancelada')
         const full = rel ? posix.join(fromPath, rel) : fromPath
         const st = await p<Stats>((cb) => src.stat(full, cb))
         if (!st.isDirectory()) return void files.push({ rel, size: st.size, mode: st.mode & 0o777 })
@@ -280,12 +312,14 @@ export class Sftp {
       step.start(files.reduce((sum, f) => sum + f.size, 0))
       const target = posix.join(toDir, name)
       for (const rel of dirs) {
+        if (step.signal.aborted) throw new Error('Transferência cancelada')
         await p<void>((cb) => dst.mkdir(rel ? posix.join(target, rel) : target, cb)).catch(() => {})
       }
       for (const f of files) {
+        if (step.signal.aborted) throw new Error('Transferência cancelada')
         const from = f.rel ? posix.join(fromPath, f.rel) : fromPath
         const to = f.rel ? posix.join(target, f.rel) : target
-        await copyFileBetween(src, dst, from, to, f.size, f.mode, step.file)
+        await copyFileBetween(src, dst, from, to, f.size, f.mode, step.file, step.signal)
         step.commit(f.size)
       }
     })
@@ -296,7 +330,14 @@ export class Sftp {
     if (!st.isDirectory()) return st.size
     const items = await p<FileEntryWithStats[]>((cb) => sftp.readdir(path, cb))
     let sum = 0
-    for (const it of items) sum += await this.remoteSize(sftp, posix.join(path, it.filename))
+    for (const it of items) {
+      const isDir = (it.attrs.mode & S_IFMT) === S_IFDIR
+      if (isDir) {
+        sum += await this.remoteSize(sftp, posix.join(path, it.filename))
+      } else {
+        sum += it.attrs.size || 0
+      }
+    }
     return sum
   }
 
@@ -307,9 +348,13 @@ export class Sftp {
       start: (total: number) => void
       file: (fileTransferred: number) => void
       commit: (fileSize: number) => void
+      signal: AbortSignal
     }) => Promise<void>
   ): string {
     const transferId = randomUUID()
+    const ctrl = new AbortController()
+    this.activeTransfers.set(transferId, ctrl)
+
     let total = 0
     let finished = 0 // bytes of files already completed
     let lastEmit = 0
@@ -322,18 +367,27 @@ export class Sftp {
         emit(0)
       },
       file: (fileTransferred) => {
+        if (ctrl.signal.aborted) throw new Error('Transferência cancelada')
         const now = Date.now()
         if (now - lastEmit < 100) return
         lastEmit = now
         emit(finished + fileTransferred)
       },
       commit: (size) => {
+        if (ctrl.signal.aborted) throw new Error('Transferência cancelada')
         finished += size
         emit(finished)
-      }
+      },
+      signal: ctrl.signal
     }).then(
-      () => emit(total, true),
-      (err: Error) => emit(finished, true, err.message)
+      () => {
+        this.activeTransfers.delete(transferId)
+        emit(total, true)
+      },
+      (err: Error) => {
+        this.activeTransfers.delete(transferId)
+        emit(finished, true, err.message)
+      }
     )
     return transferId
   }

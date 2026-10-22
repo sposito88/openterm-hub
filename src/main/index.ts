@@ -235,6 +235,7 @@ app.whenReady().then(() => {
   type Handlers = { [K in keyof OpenTermApi]?: (...args: Parameters<OpenTermApi[K]>) => unknown }
   const handlers: Handlers = {
     getSnapshot: () => store.snapshot(),
+    getHostPassword: (hostId: string) => store.getSecret(`host:${hostId}:password`) ?? '',
     saveHost: (input) => {
       const host = store.saveHost(cleanHost(input, store))
       if (input.password !== undefined) store.setSecret(`host:${host.id}:password`, input.password)
@@ -243,6 +244,7 @@ app.whenReady().then(() => {
     deleteHost: (id) => store.deleteHost(id),
     saveGroup: (name, previousName, hostIds) => store.saveGroup(name, previousName, hostIds),
     deleteGroup: (name) => store.deleteGroup(name),
+    getIdentityPassword: (identityId: string) => store.getSecret(`identity:${identityId}:password`) ?? '',
     saveIdentity: (input) => {
       const identity = store.saveIdentity(cleanIdentity(input, store))
       if (input.password !== undefined) store.setSecret(`identity:${identity.id}:password`, input.password)
@@ -321,6 +323,7 @@ app.whenReady().then(() => {
     sftpDelete: (id, path) => sftp.delete(id, path),
     sftpUpload: (id, local, remoteDir, destName) => sftp.upload(id, local, remoteDir, destName),
     sftpDownload: (id, remote, localDir, destName) => sftp.download(id, remote, localDir, destName),
+    sftpCancel: (transferId: string) => sftp.cancel(transferId),
     sftpClose: (id) => sftp.close(id),
     localHome: () => localHome(),
     localList: (path) => localList(path),

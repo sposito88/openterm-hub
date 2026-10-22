@@ -29,12 +29,39 @@ export function IdentityEditor({
   }))
   const [password, setPassword] = useState(initial?.password ?? '')
   const [clearPassword, setClearPassword] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [passwordLoaded, setPasswordLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  const loadSavedPassword = async (): Promise<string> => {
+    if (!passwordLoaded && identity?.hasPassword && identity.id) {
+      const pw = await api.getIdentityPassword(identity.id)
+      setPassword(pw || '')
+      setPasswordLoaded(true)
+      return pw || ''
+    }
+    return password
+  }
+
+  const toggleShowPassword = async (): Promise<void> => {
+    if (!showPassword) {
+      await loadSavedPassword()
+    }
+    setShowPassword(!showPassword)
+  }
+
+  const copyPassword = async (): Promise<void> => {
+    const pw = await loadSavedPassword()
+    if (pw) {
+      await navigator.clipboard.writeText(pw)
+      useApp.getState().toast(t('passwordCopied'))
+    }
+  }
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
     setBusy(true)
-    const pw = clearPassword ? '' : password || undefined
+    const pw = clearPassword ? '' : (passwordLoaded || password) ? password : undefined
     const saved = await attempt(() => api.saveIdentity({ ...form, password: pw }))
     setBusy(false)
     if (!saved) return
@@ -52,7 +79,39 @@ export function IdentityEditor({
           <input className="input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
         </Field>
         <Field label={identity?.hasPassword ? t('passwordKeep') : t('password')}>
-          <input className="input" type="password" value={password} disabled={clearPassword} onChange={(e) => setPassword(e.target.value)} />
+          <div className="input-group">
+            <input
+              className="input"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              placeholder={identity?.hasPassword && !passwordLoaded && !password ? '••••••••' : ''}
+              disabled={clearPassword}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setPasswordLoaded(true)
+              }}
+            />
+            <div className="input-group-actions">
+              <button
+                type="button"
+                className="input-action-btn"
+                title={showPassword ? t('hidePassword') : t('showPassword')}
+                onClick={toggleShowPassword}
+                disabled={clearPassword || (!identity?.hasPassword && !password)}
+              >
+                <Icon name={showPassword ? 'eyeOff' : 'eye'} size={15} />
+              </button>
+              <button
+                type="button"
+                className="input-action-btn"
+                title={t('copyPassword')}
+                onClick={copyPassword}
+                disabled={clearPassword || (!identity?.hasPassword && !password)}
+              >
+                <Icon name="copy" size={15} />
+              </button>
+            </div>
+          </div>
         </Field>
         {identity?.hasPassword && <Check label={t('removePassword')} checked={clearPassword} onChange={setClearPassword} />}
         <Field label={t('key')}>

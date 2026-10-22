@@ -344,6 +344,44 @@ function SourcePicker({ anchor, onPick, onClose }: { anchor: DOMRect; onPick(hos
   )
 }
 
+export type SortColumn = 'name' | 'mtime' | 'size' | 'kind'
+export type SortDirection = 'asc' | 'desc'
+
+export function sortEntries(
+  entries: FileEntry[],
+  sortCol: SortColumn,
+  sortDir: SortDirection,
+  getKind: (e: FileEntry) => string
+): FileEntry[] {
+  return [...entries].sort((a, b) => {
+    if (a.isDir !== b.isDir) {
+      return a.isDir ? -1 : 1
+    }
+    let cmp = 0
+    switch (sortCol) {
+      case 'name':
+        cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        break
+      case 'mtime':
+        cmp = (a.mtime || 0) - (b.mtime || 0)
+        break
+      case 'size':
+        cmp = (a.size || 0) - (b.size || 0)
+        break
+      case 'kind': {
+        const kindA = getKind(a)
+        const kindB = getKind(b)
+        cmp = kindA.localeCompare(kindB, undefined, { numeric: true, sensitivity: 'base' })
+        break
+      }
+    }
+    if (cmp === 0) {
+      cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    }
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+}
+
 function FilePane(props: {
   side: Side
   title: string
@@ -371,13 +409,27 @@ function FilePane(props: {
   const [draft, setDraft] = useState(state.path)
   const [editingPath, setEditingPath] = useState(false)
   const [dropping, setDropping] = useState(false)
+  const [sortCol, setSortCol] = useState<'name' | 'mtime' | 'size' | 'kind'>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   useEffect(() => setDraft(state.path), [state.path])
   // A filter belongs to the folder it was typed in.
   const sourceKey = state.source?.kind === 'host' ? state.source.sftpId : state.source?.kind
   useEffect(() => setFilter(''), [state.path, sourceKey])
 
+  const toggleSort = (col: 'name' | 'mtime' | 'size' | 'kind'): void => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortCol(col)
+      setSortDir(col === 'mtime' || col === 'size' ? 'desc' : 'asc')
+    }
+  }
+
   const q = filter.trim().toLowerCase()
-  const entries = state.entries.filter((e) => (showHidden || !e.name.startsWith('.')) && (!q || e.name.toLowerCase().includes(q)))
+  const filtered = state.entries.filter(
+    (e) => (showHidden || !e.name.startsWith('.')) && (!q || e.name.toLowerCase().includes(q))
+  )
+  const entries = sortEntries(filtered, sortCol, sortDir, (e) => kindOf(e, t))
   const shownPaths = entries.map((e) => e.path)
   const selectedSet = new Set(state.selected)
   const selectedEntries = entries.filter((e) => selectedSet.has(e.path))
@@ -549,10 +601,42 @@ function FilePane(props: {
         }}
       >
         <div className="frow head" onClick={(ev) => ev.stopPropagation()}>
-          <span>{t('name')}</span>
-          <span className="num">{t('modified')}</span>
-          <span className="num">{t('size')}</span>
-          <span>{t('kind')}</span>
+          <button
+            type="button"
+            className={`col-header ${sortCol === 'name' ? 'active' : ''}`}
+            onClick={() => toggleSort('name')}
+            title={sortCol === 'name' && sortDir === 'asc' ? 'Nome (A → Z)' : 'Nome (Z → A)'}
+          >
+            <span>{t('name')}</span>
+            <span className="sort-indicator">{sortCol === 'name' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+          </button>
+          <button
+            type="button"
+            className={`col-header num ${sortCol === 'mtime' ? 'active' : ''}`}
+            onClick={() => toggleSort('mtime')}
+            title={sortCol === 'mtime' && sortDir === 'desc' ? 'Mais recentes primeiro' : 'Mais antigos primeiro'}
+          >
+            <span>{t('modified')}</span>
+            <span className="sort-indicator">{sortCol === 'mtime' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+          </button>
+          <button
+            type="button"
+            className={`col-header num ${sortCol === 'size' ? 'active' : ''}`}
+            onClick={() => toggleSort('size')}
+            title={sortCol === 'size' && sortDir === 'desc' ? 'Maiores primeiro' : 'Menores primeiro'}
+          >
+            <span>{t('size')}</span>
+            <span className="sort-indicator">{sortCol === 'size' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+          </button>
+          <button
+            type="button"
+            className={`col-header ${sortCol === 'kind' ? 'active' : ''}`}
+            onClick={() => toggleSort('kind')}
+            title="Ordenar por tipo"
+          >
+            <span>{t('kind')}</span>
+            <span className="sort-indicator">{sortCol === 'kind' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
+          </button>
         </div>
         {state.connecting && <div className="empty">{t('connecting')} {state.connecting}…</div>}
         {state.error && <div className="empty">{state.error}</div>}
@@ -894,6 +978,20 @@ export function SftpTab({ tab }: { tab: Tab }) {
                 <div style={{ width: `${p.total ? Math.min(100, (p.transferred / p.total) * 100) : p.done ? 100 : 0}%` }} />
               </div>
               <span className="dim">{formatBytes(p.transferred)}</span>
+              {!p.done && (
+                <button
+                  type="button"
+                  className="btn small icon"
+                  style={{ marginLeft: 6, padding: '2px 4px' }}
+                  title={t('cancelTransfer')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void api.sftpCancel(p.transferId)
+                  }}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
             </div>
           ))}
         </div>

@@ -318,10 +318,12 @@ export interface SerialPortInfo {
 
 export interface OpenTermApi {
   getSnapshot(): Promise<Snapshot>
+  getHostPassword(hostId: string): Promise<string>
   saveHost(host: HostInput): Promise<Host>
   deleteHost(id: string): Promise<void>
   saveGroup(name: string, previousName?: string, hostIds?: string[]): Promise<void>
   deleteGroup(name: string): Promise<void>
+  getIdentityPassword(identityId: string): Promise<string>
   saveIdentity(identity: IdentityInput): Promise<Identity>
   /** Hosts that used it keep working with the identity's username copied in. */
   deleteIdentity(id: string): Promise<void>
@@ -361,6 +363,7 @@ export interface OpenTermApi {
   /** destName: name in the destination folder (default: the source's name). */
   sftpUpload(sftpId: string, localPath: string, remoteDir: string, destName?: string): Promise<string>
   sftpDownload(sftpId: string, remotePath: string, localDir: string, destName?: string): Promise<string>
+  sftpCancel(transferId: string): Promise<void>
   sftpClose(sftpId: string): void
   localHome(): Promise<string>
   localList(path: string): Promise<FileEntry[]>

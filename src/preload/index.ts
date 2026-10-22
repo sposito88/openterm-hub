@@ -3,13 +3,13 @@ import type { OpenTermApi } from '@shared/types'
 
 /** Request/response calls. */
 const invoke = [
-  'getSnapshot', 'saveHost', 'deleteHost', 'saveGroup', 'deleteGroup', 'saveIdentity', 'deleteIdentity', 'saveWorkspace', 'deleteWorkspace', 'importSshConfig',
+  'getSnapshot', 'getHostPassword', 'getIdentityPassword', 'saveHost', 'deleteHost', 'saveGroup', 'deleteGroup', 'saveIdentity', 'deleteIdentity', 'saveWorkspace', 'deleteWorkspace', 'importSshConfig',
   'generateKey', 'importKey', 'importKeyFile', 'exportPrivateKey', 'deleteKey', 'installKeyOnHost',
   'saveSnippet', 'deleteSnippet',
   'saveForward', 'deleteForward', 'startForward', 'stopForward', 'forwardStatuses',
   'deleteKnownHost', 'saveSettings', 'exportBackup', 'importBackup',
   'openSession', 'listSerialPorts',
-  'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload',
+  'sftpOpen', 'sftpList', 'sftpMkdir', 'sftpRename', 'sftpDelete', 'sftpUpload', 'sftpDownload', 'sftpCancel',
   'localHome', 'localList', 'suggest',
   'listLogs', 'readLog', 'deleteLog', 'clearLogs', 'sftpOpenFile', 'sftpChmod',
   'localOpen', 'localMkdir', 'localRename', 'localDelete', 'localChmod', 'pickProgram', 'listAgentKeys',
