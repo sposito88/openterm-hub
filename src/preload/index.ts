@@ -34,6 +34,7 @@ function on(channel: string) {
 const api: Record<string, unknown> = {
   onSessionData: on('session:data'),
   onSessionExit: on('session:exit'),
+  onSessionStats: on('session:stats'),
   onHostKeyPrompt: on('prompt:hostKey'),
   onCredentialPrompt: on('prompt:credential'),
   onPromptCancel: on('prompt:cancel'),

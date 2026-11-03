@@ -7,6 +7,7 @@ import { askFields, expandSnippet } from '@shared/snippetVars'
 import type { Host, LogEntry, SerialPortInfo, SessionInfo, SessionTarget, Snippet } from '@shared/types'
 import { Autoresponder } from './automation'
 import type { Logs, SessionLog } from './logs'
+import { startLocalMonitor, startSshMonitor } from './monitor'
 import { connectHost, type SshDeps } from './ssh'
 
 type Send = (channel: string, ...args: unknown[]) => void
@@ -32,6 +33,7 @@ interface Session {
   write(data: string): void
   resize(cols: number, rows: number): void
   close(): void
+  stopMonitor?: () => void
   hostId?: string
   auto?: Autoresponder
 }
@@ -64,6 +66,7 @@ export class Sessions {
     const s = this.sessions.get(id)
     if (!s) return
     s.auto?.dispose()
+    s.stopMonitor?.()
     this.sessions.delete(id)
     this.logs.get(id)?.end(reason, reason !== 'disconnected')
     this.logs.delete(id)
@@ -90,6 +93,7 @@ export class Sessions {
       if (target.kind === 'local') {
         const shell = localShell()
         session = this.spawnPty(id, shell.file, shell.args, cols, rows, term)
+        session.stopMonitor = startLocalMonitor((st) => this.send('session:stats', id, st))
       } else if (target.kind === 'serial') {
         session = await this.openSerial(id, target.path, target.baudRate)
       } else {
@@ -227,10 +231,13 @@ export class Sessions {
       this.emitExit(id, exitCode === undefined ? 'disconnected' : `exit ${exitCode}`)
     })
     client.on('close', () => this.emitExit(id, 'disconnected'))
+    const stopMonitor = startSshMonitor(client, (st) => this.send('session:stats', id, st))
     return {
       write: (d) => stream.write(d),
       resize: (c, r) => stream.setWindow(r, c, 0, 0),
+      stopMonitor,
       close: () => {
+        stopMonitor()
         stream.close()
         client.end()
       }
@@ -265,6 +272,7 @@ export class Sessions {
   close(id: string): void {
     const s = this.sessions.get(id)
     s?.auto?.dispose()
+    s?.stopMonitor?.()
     this.sessions.delete(id)
     this.logs.get(id)?.end('closed', true)
     this.logs.delete(id)

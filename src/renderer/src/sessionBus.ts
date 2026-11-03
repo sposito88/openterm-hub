@@ -1,15 +1,19 @@
+import type { SessionStats } from '@shared/types'
 import { api } from './api'
 
 interface Handlers {
   data(chunk: string): void
   exit(reason: string): void
+  stats?(s: SessionStats): void
 }
 
 const handlers = new Map<string, Handlers>()
 // Output can arrive before openSession() resolves, so it is held until a handler registers.
 const early = new Map<string, Array<['data' | 'exit', string]>>()
+const latestStats = new Map<string, SessionStats>()
 
 function dispatch(id: string, kind: 'data' | 'exit', payload: string): void {
+  if (kind === 'exit') latestStats.delete(id)
   const h = handlers.get(id)
   if (h) h[kind](payload)
   else {
@@ -21,11 +25,17 @@ function dispatch(id: string, kind: 'data' | 'exit', payload: string): void {
 
 api.onSessionData((id, data) => dispatch(id, 'data', data))
 api.onSessionExit((id, reason) => dispatch(id, 'exit', reason))
+api.onSessionStats((id, stats) => {
+  latestStats.set(id, stats)
+  handlers.get(id)?.stats?.(stats)
+})
 
 export function subscribe(id: string, h: Handlers): () => void {
   handlers.set(id, h)
   for (const [kind, payload] of early.get(id) ?? []) h[kind](payload)
   early.delete(id)
+  const st = latestStats.get(id)
+  if (st) h.stats?.(st)
   return () => {
     handlers.delete(id)
     early.delete(id)

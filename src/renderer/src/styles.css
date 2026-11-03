@@ -2008,3 +2008,85 @@ details.section[open] > summary {
   flex: 1;
   justify-content: center;
 }
+
+/* ---- remote system monitor bar ------------------------------------------ */
+
+.term-monitor {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-size: 11px;
+  user-select: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.mon-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mon-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mon-val {
+  color: var(--text-dim);
+}
+
+.mon-bar {
+  width: 44px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: inline-block;
+  position: relative;
+}
+
+.mon-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.mon-fill.ok {
+  background: var(--ok, #10b981);
+}
+
+.mon-fill.warn {
+  background: #f59e0b;
+}
+
+.mon-fill.crit {
+  background: var(--danger, #ef4444);
+}
+
+.mon-net {
+  gap: 10px;
+}
+
+.mon-rate.down.active {
+  color: var(--ok, #10b981);
+}
+
+.mon-rate.up.active {
+  color: var(--accent);
+}
+
+.mon-time {
+  margin-left: auto;
+  gap: 5px;
+  color: var(--text);
+}

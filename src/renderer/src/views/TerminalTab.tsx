@@ -5,15 +5,16 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
-import type { SessionTarget, Settings, Suggestion } from '@shared/types'
+import type { SessionStats, SessionTarget, Settings, Suggestion } from '@shared/types'
 import { api, errorMessage } from '../api'
 import { Icon } from '../components/Icon'
+import { MonitorBar } from '../components/MonitorBar'
 import { SidePanel } from '../components/SidePanel'
 import { ensureFontLoaded, fontStack } from '../fonts'
 import { translate, useT } from '../i18n'
 import { LineTracker, trimTrailingSpaces } from '../lineTracker'
 import { subscribe, tabSessions, terminalActions } from '../sessionBus'
-import { useApp, useUiLight, type Tab } from '../state'
+import { attempt, useApp, useUiLight, type Tab } from '../state'
 import { findTerminalTheme, TERMINAL_THEMES } from '../terminalThemes'
 import { openSftp } from './Hosts'
 import { runSnippet } from './Snippets'
@@ -55,7 +56,9 @@ interface TerminalUiBridge {
   hostEl: HTMLDivElement | null
   wrapEl: HTMLDivElement | null
   popup: Popup | null
+  stats: SessionStats | null
   setPopup(p: Popup | null): void
+  setStats(s: SessionStats | null): void
   setSearching(v: boolean): void
   broadcastActive?: boolean
   onBroadcastWrite?: (data: string) => void
@@ -206,6 +209,7 @@ export function TerminalTab(props: TerminalTabProps) {
 
   const sKey = paneId || tab.id
   const currentEntry = retainedTerminals.get(sKey)
+  const [stats, setStatsState] = useState<SessionStats | null>(() => currentEntry?.ui.stats ?? null)
   if (currentEntry) {
     currentEntry.ui.broadcastActive = broadcastActive
     currentEntry.ui.onBroadcastWrite = onBroadcastWrite
@@ -232,7 +236,9 @@ export function TerminalTab(props: TerminalTabProps) {
         hostEl: hostEl.current,
         wrapEl: wrapEl.current,
         popup: null,
+        stats: null,
         setPopup: () => {},
+        setStats: () => {},
         setSearching: () => {},
         broadcastActive,
         onBroadcastWrite,
@@ -396,6 +402,7 @@ export function TerminalTab(props: TerminalTabProps) {
           api.resizeSession(info.id, term.cols, term.rows)
           unsubscribe = subscribe(info.id, {
             data: (d) => term.write(d),
+            stats: (st) => ui.setStats(st),
             exit: (reason) => {
               exited = true
               sessionId = null
@@ -403,6 +410,7 @@ export function TerminalTab(props: TerminalTabProps) {
               ui.onSessionClosed?.(sKey)
               unsubscribe?.()
               ui.setPopup(null)
+              ui.setStats(null)
               term.write(`\r\n\x1b[33m[${translate('sessionClosed')}: ${reason}]\x1b[0m\r\n`)
               if (reason !== 'disconnected' || !scheduleReconnect()) term.write(`${translate('pressEnter')}\r\n`)
             }
@@ -503,6 +511,11 @@ export function TerminalTab(props: TerminalTabProps) {
       ui.popup = p
       setPopupState(p)
     }
+    ui.setStats = (s: SessionStats | null) => {
+      ui.stats = s
+      setStatsState(s)
+    }
+    setStatsState(ui.stats)
     ui.setSearching = setSearching
     ui.broadcastActive = broadcastActive
     ui.onBroadcastWrite = onBroadcastWrite
@@ -773,8 +786,15 @@ export function TerminalTab(props: TerminalTabProps) {
           </button>
         )}
         <button
-          className={`btn small ${sidePanel === 'history' ? 'active' : ''}`}
+          className={`btn small ${settings.remoteMonitor ? 'active' : ''}`}
           style={{ marginLeft: 'auto' }}
+          title={t('remoteMonitorHint')}
+          onClick={() => void attempt(() => api.saveSettings({ remoteMonitor: !settings.remoteMonitor }))}
+        >
+          <Icon name="activity" size={14} /> {t('monitorToggle')}
+        </button>
+        <button
+          className={`btn small ${sidePanel === 'history' ? 'active' : ''}`}
           title={t('historyPanelHint')}
           onClick={() => setSidePanel(sidePanel === 'history' ? null : 'history')}
         >
@@ -838,6 +858,7 @@ export function TerminalTab(props: TerminalTabProps) {
         />
       )}
       </div>
+      {settings.remoteMonitor && <MonitorBar stats={stats} />}
       {termContextMenu && (
         <div
           className="menu context-menu"

@@ -183,6 +183,7 @@ function TerminalSection({ s }: { s: SettingsT }) {
       <div className="panel">
         <h2>{t('terminalSection')}</h2>
         <ToggleRow label={t('autocomplete')} value={s.autocomplete} onChange={(v) => save({ autocomplete: v })} />
+        <ToggleRow label={t('remoteMonitor')} hint={t('remoteMonitorHint')} value={s.remoteMonitor} onChange={(v) => save({ remoteMonitor: v })} />
         <ToggleRow label={t('autoReconnect')} value={s.autoReconnect} onChange={(v) => save({ autoReconnect: v })} />
         <ToggleRow label={t('importShellHistory')} hint={t('importShellHistoryHint')} value={s.importShellHistory} onChange={(v) => save({ importShellHistory: v })} />
         <ToggleRow label={t('copyOnSelectLabel')} value={s.copyOnSelect} onChange={(v) => save({ copyOnSelect: v })} />

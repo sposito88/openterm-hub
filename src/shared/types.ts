@@ -186,6 +186,8 @@ export interface Settings {
   bellSound: boolean
   boldBright: boolean
   sessionLogging: boolean
+  /** Bottom status bar in terminals showing CPU, RAM, root disk, network rates and uptime. */
+  remoteMonitor: boolean
   sftpShowHidden: boolean
   fileAssociations: FileAssociation[]
   /** Action id → key combination ("Ctrl+Shift+W"); '' disables the shortcut. */
@@ -232,6 +234,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bellSound: false,
   boldBright: false,
   sessionLogging: false,
+  remoteMonitor: true,
   sftpShowHidden: true,
   fileAssociations: [],
   shortcuts: {},
@@ -290,6 +293,29 @@ export type SessionTarget =
 export interface SessionInfo {
   id: string
   title: string
+}
+
+export interface SessionStats {
+  /** Session start timestamp (ms). */
+  connectedAt: number
+  /** CPU usage percentage (0–100). */
+  cpuPercent: number | null
+  /** 1-minute load average when available. */
+  loadAvg?: number | null
+  /** RAM used in bytes. */
+  memUsed: number | null
+  /** Total RAM in bytes. */
+  memTotal: number | null
+  /** Root filesystem (/) used in bytes. */
+  diskUsed: number | null
+  /** Root filesystem (/) total in bytes. */
+  diskTotal: number | null
+  /** Network download rate in bytes/sec across non-loopback interfaces. */
+  rxRate: number | null
+  /** Network upload rate in bytes/sec across non-loopback interfaces. */
+  txRate: number | null
+  /** Remote system uptime in seconds when available. */
+  uptimeSeconds?: number | null
 }
 
 export interface FileEntry {
@@ -494,6 +520,7 @@ export interface OpenTermApi {
 
   onSessionData(cb: (id: string, data: string) => void): () => void
   onSessionExit(cb: (id: string, reason: string) => void): () => void
+  onSessionStats(cb: (id: string, stats: SessionStats) => void): () => void
   onHostKeyPrompt(cb: (p: HostKeyPrompt) => void): () => void
   onCredentialPrompt(cb: (p: CredentialPrompt) => void): () => void
   /** Short information for the user, e.g. "touch your security key". */

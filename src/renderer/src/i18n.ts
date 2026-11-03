@@ -357,7 +357,15 @@ const pt = {
   saveAsSnippet: "Salvar como snippet",
   forgetCommand: "Remover do histórico",
   snippetSaved: "Snippet salvo",
-  snippetsSaved: "{n} snippets salvos"
+  snippetsSaved: "{n} snippets salvos",
+  remoteMonitor: "Barra de monitoramento do sistema",
+  remoteMonitorHint: "Mostra uso de CPU, RAM, disco (/), taxa de rede (download/upload) e tempo conectado no rodapé do terminal.",
+  monitorToggle: "Monitoramento",
+  connectedTime: "Tempo conectado",
+  serverUptime: "Uptime do servidor",
+  netDown: "Download",
+  netUp: "Upload",
+  rootDisk: "Disco /"
 }
 
 type Dict = typeof pt
@@ -720,7 +728,15 @@ const en: Dict = {
   saveAsSnippet: "Save as snippet",
   forgetCommand: "Remove from history",
   snippetSaved: "Snippet saved",
-  snippetsSaved: "{n} snippets saved"
+  snippetsSaved: "{n} snippets saved",
+  remoteMonitor: "System monitoring bar",
+  remoteMonitorHint: "Shows CPU, RAM, root disk (/), network download/upload rate and connected time at the bottom of the terminal.",
+  monitorToggle: "Monitor",
+  connectedTime: "Connected time",
+  serverUptime: "Server uptime",
+  netDown: "Download",
+  netUp: "Upload",
+  rootDisk: "Disk /"
 }
 
 const dicts = { pt, en }

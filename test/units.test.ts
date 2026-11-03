@@ -536,3 +536,72 @@ test('hosts are sorted by lastConnectedAt (most recent on top) with alphabetical
   assert.deepEqual(sortedName.map((h) => h.label), ['Alpha', 'Bravo', 'Charlie', 'Delta'])
 })
 
+test('parseMonitorOutput extracts CPU delta, RAM, root disk, network RX/TX rates and uptime', async () => {
+  const { parseMonitorOutput } = await import('../src/main/monitor')
+  const { formatElapsed, formatPairBytes, formatRate, formatUptime, meterLevel } = await import('../src/renderer/src/components/MonitorBar')
+
+  const raw1 = [
+    '===CPU===',
+    'cpu  1000 0 500 8500 0 0 0 0 0 0',
+    '===LOAD===',
+    '0.42 0.31 0.25 1/245 1234',
+    '===UPTIME===',
+    '90061.50 175000.00',
+    '===MEM===',
+    'MemTotal:        8388608 kB',
+    'MemFree:         2097152 kB',
+    'MemAvailable:    6291456 kB',
+    '===NET===',
+    'Inter-|   Receive                                                |  Transmit',
+    ' face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed',
+    '    lo:   50000     100    0    0    0     0          0         0    50000     100    0    0    0     0       0          0',
+    '  eth0: 1000000    1000    0    0    0     0          0         0   500000     500    0    0    0     0       0          0',
+    '===DISK===',
+    '/dev/sda1       41943040 16777216  25165824  40% /'
+  ].join('\n')
+
+  const connectedAt = 1_700_000_000_000
+  const s1 = parseMonitorOutput(raw1, {}, connectedAt, 10_000)
+  assert.ok(s1.stats)
+  assert.equal(s1.stats.connectedAt, connectedAt)
+  assert.equal(s1.stats.cpuPercent, null) // First sample establishes baseline
+  assert.equal(s1.stats.loadAvg, 0.42)
+  assert.equal(s1.stats.uptimeSeconds, 90061)
+  assert.equal(s1.stats.memTotal, 8388608 * 1024)
+  assert.equal(s1.stats.memUsed, (8388608 - 6291456) * 1024)
+  assert.equal(s1.stats.diskTotal, 41943040 * 1024)
+  assert.equal(s1.stats.diskUsed, 16777216 * 1024)
+  assert.equal(s1.stats.rxRate, 0)
+  assert.equal(s1.stats.txRate, 0)
+
+  // Second sample 2 seconds later: +250 busy jiffies, +750 idle jiffies (25% CPU), +204800 RX bytes (100 KB/s), +20480 TX bytes (10 KB/s)
+  const raw2 = [
+    '===CPU===',
+    'cpu  1200 0 550 9250 0 0 0 0 0 0',
+    '===MEM===',
+    'MemTotal:        8388608 kB',
+    'MemAvailable:    4194304 kB',
+    '===NET===',
+    '    lo:   90000     200    0    0    0     0          0         0    90000     200    0    0    0     0       0          0',
+    '  eth0: 1204800    1200    0    0    0     0          0         0   520480     550    0    0    0     0       0          0',
+    '===DISK===',
+    '/dev/sda1       41943040 16777216  25165824  40% /'
+  ].join('\n')
+
+  const s2 = parseMonitorOutput(raw2, s1.next, connectedAt, 12_000)
+  assert.ok(s2.stats)
+  assert.equal(s2.stats.cpuPercent, 25)
+  assert.equal(s2.stats.rxRate, 102400)
+  assert.equal(s2.stats.txRate, 10240)
+
+  assert.equal(formatRate(s2.stats.rxRate), '100 KB/s')
+  assert.equal(formatRate(s2.stats.txRate), '10.0 KB/s')
+  assert.deepEqual(formatPairBytes(s2.stats.memUsed!, s2.stats.memTotal!), { text: '4.0/8.0 GB (50%)', pct: 50 })
+  assert.equal(formatElapsed(3661_000), '01:01:01')
+  assert.equal(formatUptime(90061), '1d 1h 1m')
+  assert.equal(meterLevel(25), 'ok')
+  assert.equal(meterLevel(75), 'warn')
+  assert.equal(meterLevel(95), 'crit')
+})
+
+
