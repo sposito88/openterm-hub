@@ -2,7 +2,7 @@
 
 Em **Hosts → Importar** ou **Configurações → Backup**, o OpenTerm Hub aceita:
 
-1. **Termius** — arquivo exportado do Termius em **CSV** (`Settings → Export → CSV`), **SSH Config** (`Settings → Export → SSH Config`) ou **JSON** (com grupos, tags, portas, usuários, senhas, chaves e jump hosts).
+1. **Termius** — puxa direto do banco local instalado no computador (**"Importar do Termius Local"**, sem precisar exportar nada, descriptografando senhas e chaves via chaveiro do SO) ou importa arquivo exportado do Termius em **CSV** (`Settings → Export → CSV`), **SSH Config** (`Settings → Export → SSH Config`) ou **JSON** (com grupos, tags, portas, usuários, senhas, chaves e jump hosts).
 2. **MobaXterm** — arquivos `.mxtsessions` ou `MobaXterm.ini` (importa pastas `SubRep` como grupos, hosts SSH/Telnet/Mosh/SFTP, comandos iniciais, SSH gateways/jump hosts e chaves privadas).
 3. **PuTTY / KiTTY / SuperPuTTY** — puxa direto das sessões instaladas (`~/.putty/sessions` no Linux/macOS ou Registro do Windows) ou importa arquivos `.reg` (inclusive UTF-16LE do `regedit`) e `Sessions.xml`.
 4. **OpenSSH** — lê `~/.ssh/config` ou qualquer arquivo `ssh_config` escolhido.
