@@ -81,16 +81,19 @@ function writeJson(file: string, value: unknown): void {
 }
 
 export class Store {
-  private dir = app.getPath('userData')
-  private dataFile = join(this.dir, 'data.json')
-  private secretsFile = join(this.dir, 'secrets.json')
+  private dir: string
+  private dataFile: string
+  private secretsFile: string
   private data: Data
   private secrets: Record<string, string>
   private listeners = new Set<() => void>()
   private batching = false
   private dirty = false
 
-  constructor() {
+  constructor(dir = app.getPath('userData')) {
+    this.dir = dir
+    this.dataFile = join(this.dir, 'data.json')
+    this.secretsFile = join(this.dir, 'secrets.json')
     mkdirSync(this.dir, { recursive: true })
     const loaded = readJson<Partial<Data>>(this.dataFile, {})
     const settings = { ...DEFAULT_SETTINGS, ...loaded.settings }
@@ -120,7 +123,7 @@ export class Store {
   }
 
   get secureStorage(): boolean {
-    if (!safeStorage.isEncryptionAvailable()) return false
+    if (!safeStorage?.isEncryptionAvailable?.()) return false
     return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'
   }
 
@@ -179,7 +182,7 @@ export class Store {
   }
 
   private encode(value: string): string {
-    return safeStorage.isEncryptionAvailable()
+    return safeStorage?.isEncryptionAvailable?.()
       ? 'enc:' + safeStorage.encryptString(value).toString('base64')
       : 'raw:' + Buffer.from(value, 'utf8').toString('base64')
   }
@@ -536,15 +539,64 @@ export class Store {
 
   // ---- backup --------------------------------------------------------------
 
-  /** Backup without any secret (passwords, private keys). */
+  /** Full backup including secrets (passwords, private keys, passphrases, proxy and step secrets). */
   exportBackup(): object {
     const { hosts, groups, identities, workspaces, keys, snippets, forwards, knownHosts, settings } = this.data
-    return { format: 'openterm-hub-backup', version: 1, hosts, groups: groups ?? [], identities, workspaces: workspaces ?? [], keys, snippets, forwards, knownHosts, settings }
+    const secrets: Record<string, string> = {}
+    for (const name of Object.keys(this.secrets)) {
+      if (!isSyncedSecret(name)) continue
+      const value = this.getSecret(name)
+      if (value) secrets[name] = value
+    }
+    return {
+      format: 'openterm-hub-backup',
+      version: 1,
+      hosts,
+      groups: groups ?? [],
+      identities,
+      workspaces: workspaces ?? [],
+      keys,
+      snippets,
+      forwards,
+      knownHosts,
+      settings,
+      secrets
+    }
   }
 
   importBackup(raw: unknown): void {
-    const b = raw as Partial<Data> & { format?: string }
+    const b = raw as Partial<Data> & {
+      format?: string
+      secrets?: Record<string, string>
+    }
     if (b?.format !== 'openterm-hub-backup') throw new Error('Arquivo de backup inválido')
+
+    let secretsChanged = false
+    const saveRawSecret = (name: string, val: unknown): void => {
+      if (typeof val === 'string' && val !== '') {
+        this.secrets[name] = this.encode(val)
+        secretsChanged = true
+      }
+    }
+
+    if (b.secrets && typeof b.secrets === 'object') {
+      for (const [name, value] of Object.entries(b.secrets)) {
+        if (isSyncedSecret(name)) saveRawSecret(name, value)
+      }
+    }
+    for (const i of (b.identities ?? []) as Array<Identity & { password?: string }>) {
+      if (i?.id && i.password) saveRawSecret(`identity:${i.id}:password`, i.password)
+    }
+    for (const h of (b.hosts ?? []) as Array<Host & { password?: string; proxyPassword?: string }>) {
+      if (h?.id && h.password) saveRawSecret(`host:${h.id}:password`, h.password)
+      if (h?.id && h.proxyPassword) saveRawSecret(`host:${h.id}:proxyPassword`, h.proxyPassword)
+    }
+    for (const k of (b.keys ?? []) as Array<SshKey & { privateKey?: string; passphrase?: string }>) {
+      if (k?.id && k.privateKey) saveRawSecret(`key:${k.id}:private`, k.privateKey)
+      if (k?.id && k.passphrase) saveRawSecret(`key:${k.id}:passphrase`, k.passphrase)
+    }
+    if (secretsChanged) writeJson(this.secretsFile, this.secrets)
+
     const merge = <T extends { id: string }>(cur: T[], inc: T[] | undefined): T[] => {
       const map = new Map(cur.map((x) => [x.id, x]))
       for (const x of inc ?? []) map.set(x.id, { ...map.get(x.id), ...x })
@@ -552,23 +604,37 @@ export class Store {
     }
     this.data.identities = merge(
       this.data.identities,
-      b.identities?.map((i) => ({ ...i, hasPassword: !!this.getSecret(`identity:${i.id}:password`) }))
+      b.identities?.map((i) => {
+        const { password: _, ...rest } = i as Identity & { password?: string }
+        return { ...rest, hasPassword: !!this.getSecret(`identity:${i.id}:password`) }
+      })
     )
     this.data.hosts = merge(
       this.data.hosts,
-      b.hosts?.map((h) => ({
-        ...h,
-        group: normalizeGroup(h.group ?? ''),
-        os: h.os ?? null,
-        identityId: h.identityId ?? null,
-        hasPassword: !!this.getSecret(`host:${h.id}:password`)
-      }))
+      b.hosts?.map((h) => {
+        const { password: _, proxyPassword: __, ...rest } = h as Host & { password?: string; proxyPassword?: string }
+        return {
+          ...rest,
+          group: normalizeGroup(h.group ?? ''),
+          os: h.os ?? null,
+          theme: h.theme ?? null,
+          identityId: h.identityId ?? null,
+          hasPassword: !!this.getSecret(`host:${h.id}:password`),
+          proxy: h.proxy ? { ...h.proxy, hasPassword: !!this.getSecret(`host:${h.id}:proxyPassword`) } : null
+        }
+      })
     )
     const groupSet = new Set<string>([...(this.data.groups ?? []), ...(b.groups ?? [])].map(normalizeGroup).filter(Boolean))
     for (const h of this.data.hosts) if (h.group) groupSet.add(h.group)
     this.data.groups = [...groupSet].sort((a, b) => a.localeCompare(b))
     this.data.workspaces = merge(this.data.workspaces ?? [], (b as { workspaces?: Workspace[] }).workspaces)
-    this.data.keys = merge(this.data.keys, b.keys)
+    this.data.keys = merge(
+      this.data.keys,
+      b.keys?.map((k) => {
+        const { privateKey: _, passphrase: __, ...rest } = k as SshKey & { privateKey?: string; passphrase?: string }
+        return { ...rest, hasPassphrase: !!this.getSecret(`key:${k.id}:passphrase`) }
+      })
+    )
     this.data.snippets = merge(this.data.snippets, b.snippets)
     this.data.forwards = merge(this.data.forwards, b.forwards)
     for (const k of b.knownHosts ?? []) {

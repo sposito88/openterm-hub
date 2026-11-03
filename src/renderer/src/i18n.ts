@@ -98,8 +98,8 @@ const pt = {
   keepalive: 'Keepalive (segundos, 0 desliga)',
   autocomplete: 'Autocomplete no terminal',
   backup: 'Backup',
-  exportBackup: 'Exportar backup (sem senhas nem chaves privadas)',
-  importBackup: 'Importar backup',
+  exportBackup: 'Exportar backup completo (com senhas, chaves e configurações)',
+  importBackup: 'Importar backup / arquivo',
   insecureStorage: 'O sistema não tem um chaveiro seguro (libsecret/gnome-keyring). Senhas e chaves são salvas sem criptografia forte.',
   sessionClosed: 'Sessão encerrada',
   pressEnter: 'Pressione Enter para reconectar',
@@ -195,8 +195,8 @@ const pt = {
   sc_toggleSidebar: "Alternar menu lateral",
   interrupted: "interrompida",
   alreadyPresent: "já existiam",
-  deleteImportFile: "O arquivo importado contém senhas e chaves em texto puro: apague-o.",
-  importHint: "Aceita um backup do OpenTerm Hub ou um arquivo de migração com senhas e chaves (docs/IMPORT.md).",
+  deleteImportFile: "O arquivo contém senhas e chaves em texto puro: guarde-o em local seguro ou apague-o após o uso.",
+  importHint: "Importe seus hosts do Termius, PuTTY, MobaXterm, ~/.ssh/config ou de um backup completo do OpenTerm Hub (com senhas e chaves).",
   folder: "pasta",
   file: "arquivo",
   permOwner: "Dono",
@@ -365,7 +365,14 @@ const pt = {
   serverUptime: "Uptime do servidor",
   netDown: "Download",
   netUp: "Upload",
-  rootDisk: "Disco /"
+  rootDisk: "Disco /",
+  importTermius: "Importar do Termius (CSV, SSH Config ou JSON)",
+  importTermiusHint: "No Termius: Settings → Export → CSV ou SSH Config",
+  importPutty: "Importar do PuTTY / KiTTY (.reg ou Sessions.xml)",
+  importPuttyLocal: "Puxar do PuTTY instalado neste PC",
+  importMoba: "Importar do MobaXterm (.mxtsessions ou .ini)",
+  importSshConfigFile: "Escolher arquivo SSH Config…",
+  importFromClients: "Importar de outros clientes SSH"
 }
 
 type Dict = typeof pt
@@ -469,8 +476,8 @@ const en: Dict = {
   keepalive: 'Keepalive (seconds, 0 disables)',
   autocomplete: 'Terminal autocomplete',
   backup: 'Backup',
-  exportBackup: 'Export backup (no passwords or private keys)',
-  importBackup: 'Import backup',
+  exportBackup: 'Export full backup (with passwords, keys and settings)',
+  importBackup: 'Import backup / file',
   insecureStorage: 'No secure keyring found (libsecret/gnome-keyring). Passwords and keys are stored without strong encryption.',
   sessionClosed: 'Session closed',
   pressEnter: 'Press Enter to reconnect',
@@ -566,8 +573,8 @@ const en: Dict = {
   sc_toggleSidebar: "Toggle sidebar",
   interrupted: "interrupted",
   alreadyPresent: "already present",
-  deleteImportFile: "The imported file holds passwords and keys in plain text: delete it.",
-  importHint: "Accepts an OpenTerm Hub backup or a migration file with passwords and keys (docs/IMPORT.md).",
+  deleteImportFile: "The file holds passwords and keys in plain text: keep it safe or delete it after use.",
+  importHint: "Import your hosts from Termius, PuTTY, MobaXterm, ~/.ssh/config or a full OpenTerm Hub backup (with passwords and keys).",
   folder: "folder",
   file: "file",
   permOwner: "Owner",
@@ -736,7 +743,14 @@ const en: Dict = {
   serverUptime: "Server uptime",
   netDown: "Download",
   netUp: "Upload",
-  rootDisk: "Disk /"
+  rootDisk: "Disk /",
+  importTermius: "Import from Termius (CSV, SSH Config or JSON)",
+  importTermiusHint: "In Termius: Settings → Export → CSV or SSH Config",
+  importPutty: "Import from PuTTY / KiTTY (.reg or Sessions.xml)",
+  importPuttyLocal: "Pull from installed PuTTY on this PC",
+  importMoba: "Import from MobaXterm (.mxtsessions or .ini)",
+  importSshConfigFile: "Choose SSH Config file…",
+  importFromClients: "Import from other SSH clients"
 }
 
 const dicts = { pt, en }

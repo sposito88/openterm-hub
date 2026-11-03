@@ -364,6 +364,8 @@ export interface AgentKey {
   securityKey: boolean
 }
 
+export type ImportClientSource = 'termius' | 'putty' | 'putty-local' | 'mobaxterm' | 'sshconfig'
+
 export interface ImportSummary {
   hosts: number
   identities: number
@@ -436,6 +438,7 @@ export interface OpenTermApi {
   saveWorkspace(workspace: Omit<Workspace, 'id'> & { id?: string }): Promise<Workspace>
   deleteWorkspace(id: string): Promise<void>
   importSshConfig(): Promise<number>
+  importClient(source: ImportClientSource): Promise<ImportSummary | null>
   generateKey(req: GeneratedKeyRequest): Promise<SshKey>
   importKey(req: ImportKeyRequest): Promise<SshKey>
   importKeyFile(): Promise<string | null>

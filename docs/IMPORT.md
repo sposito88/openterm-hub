@@ -1,9 +1,13 @@
-# Importar de outro cliente SSH
+# Importar de outro cliente SSH e Backup Completo
 
-Em **Configurações → Backup → Importar backup**, o OpenTerm Hub aceita dois tipos de arquivo JSON:
+Em **Hosts → Importar** ou **Configurações → Backup**, o OpenTerm Hub aceita:
 
-1. **Backup do OpenTerm Hub** (`"format": "openterm-hub-backup"`), gerado pelo próprio app. Não traz senhas nem chaves privadas.
-2. **Arquivo de migração** (`"format": "openterm-hub-import"`), descrito abaixo. Traz senhas e chaves privadas, para migrar de outro cliente sem redigitar nada.
+1. **Termius** — arquivo exportado do Termius em **CSV** (`Settings → Export → CSV`), **SSH Config** (`Settings → Export → SSH Config`) ou **JSON** (com grupos, tags, portas, usuários, senhas, chaves e jump hosts).
+2. **MobaXterm** — arquivos `.mxtsessions` ou `MobaXterm.ini` (importa pastas `SubRep` como grupos, hosts SSH/Telnet/Mosh/SFTP, comandos iniciais, SSH gateways/jump hosts e chaves privadas).
+3. **PuTTY / KiTTY / SuperPuTTY** — puxa direto das sessões instaladas (`~/.putty/sessions` no Linux/macOS ou Registro do Windows) ou importa arquivos `.reg` (inclusive UTF-16LE do `regedit`) e `Sessions.xml`.
+4. **OpenSSH** — lê `~/.ssh/config` ou qualquer arquivo `ssh_config` escolhido.
+5. **Backup do OpenTerm Hub** (`"format": "openterm-hub-backup"`), gerado pelo próprio app. Leva tudo: hosts, grupos, identidades, chaves privadas, senhas, túneis, workspaces, snippets e configurações.
+6. **Arquivo de migração JSON** (`"format": "openterm-hub-import"`), descrito abaixo.
 
 > ⚠️ O arquivo de migração tem senhas e chaves **em texto puro**. Gere-o com permissão restrita (`chmod 600`), importe, e **apague-o** em seguida. Dentro do app, os segredos passam a ser cifrados pelo chaveiro do sistema.
 

@@ -10,7 +10,16 @@ import {
   type ShortcutAction
 } from '@shared/shortcuts'
 import { BUILTIN_VARIABLES } from '@shared/snippetVars'
-import { TERM_TYPES, WORD_SEPARATORS, type FileAssociation, type Settings as SettingsT, type SnippetVariable, type SyncStatus } from '@shared/types'
+import {
+  TERM_TYPES,
+  WORD_SEPARATORS,
+  type FileAssociation,
+  type ImportClientSource,
+  type ImportSummary,
+  type Settings as SettingsT,
+  type SnippetVariable,
+  type SyncStatus
+} from '@shared/types'
 import { BUNDLED_FONTS, fontStack, systemMonospaceFonts } from '../fonts'
 import { api } from '../api'
 import { Icon, type IconName } from '../components/Icon'
@@ -576,37 +585,115 @@ function SyncSection() {
 function BackupSection() {
   const t = useT()
   const toast = useApp((st) => st.toast)
+
+  const notifySummary = (res: ImportSummary): void => {
+    const linked = res.linked ? `, ${res.linked} ${t('linkedToIdentity')}` : ''
+    const msg = `${t('imported')}: ${res.hosts} hosts, ${res.identities} ${t('identities').toLowerCase()}, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets, ${res.knownHosts} known hosts${linked} (${res.skipped} ${t('alreadyPresent')})`
+    toast(msg)
+    for (const e of res.errors.slice(0, 5)) toast(e, true)
+    if (res.errors.length > 5) toast(`+${res.errors.length - 5} ${t('error').toLowerCase()}`, true)
+  }
+
+  const importClient = async (source: ImportClientSource): Promise<void> => {
+    const res = await attempt(() => api.importClient(source))
+    if (res) notifySummary(res)
+  }
+
   return (
-    <div className="panel">
-      <div className="setting-row">
-        <span>{t('exportBackup')}</span>
-        <button className="btn" onClick={async () => (await attempt(() => api.exportBackup())) && toast('OK')}>
-          <Icon name="download" /> {t('backup')}
-        </button>
-      </div>
-      <div className="setting-row">
-        <div>
-          <div className="label">{t('importBackup')}</div>
-          <div className="hint">{t('importHint')}</div>
+    <>
+      <div className="panel">
+        <div className="setting-row">
+          <div>
+            <div className="label">{t('exportBackup')}</div>
+            <div className="hint">{t('deleteImportFile')}</div>
+          </div>
+          <button
+            className="btn"
+            onClick={async () => {
+              if (await attempt(() => api.exportBackup())) {
+                toast('OK')
+                toast(t('deleteImportFile'), true)
+              }
+            }}
+          >
+            <Icon name="download" /> {t('backup')}
+          </button>
         </div>
-        <button
-          className="btn"
-          onClick={async () => {
-            const res = await attempt(() => api.importBackup())
-            if (!res) return
-            if (res === 'backup') return toast('OK')
-            const linked = res.linked ? `, ${res.linked} ${t('linkedToIdentity')}` : ''
-            const msg = `${t('imported')}: ${res.hosts} hosts, ${res.identities} ${t('identities').toLowerCase()}, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets, ${res.knownHosts} known hosts${linked} (${res.skipped} ${t('alreadyPresent')})`
-            toast(msg)
-            for (const e of res.errors.slice(0, 5)) toast(e, true)
-            if (res.errors.length > 5) toast(`+${res.errors.length - 5} ${t('error').toLowerCase()}`, true)
-            toast(t('deleteImportFile'), true)
-          }}
-        >
-          <Icon name="import" /> {t('importBackup')}
-        </button>
+        <div className="setting-row">
+          <div>
+            <div className="label">{t('importBackup')}</div>
+            <div className="hint">{t('importHint')}</div>
+          </div>
+          <button
+            className="btn"
+            onClick={async () => {
+              const res = await attempt(() => api.importBackup())
+              if (!res) return
+              if (res === 'backup') return toast(t('imported'))
+              notifySummary(res)
+            }}
+          >
+            <Icon name="import" /> {t('importBackup')}
+          </button>
+        </div>
       </div>
-    </div>
+
+      <div className="panel">
+        <h2>{t('importFromClients')}</h2>
+        <div className="setting-row">
+          <div>
+            <div className="label">Termius</div>
+            <div className="hint">{t('importTermiusHint')}</div>
+          </div>
+          <button className="btn" onClick={() => importClient('termius')}>
+            <Icon name="server" /> {t('importTermius')}
+          </button>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div className="label">MobaXterm</div>
+            <div className="hint">.mxtsessions, MobaXterm.ini</div>
+          </div>
+          <button className="btn" onClick={() => importClient('mobaxterm')}>
+            <Icon name="terminal" /> {t('importMoba')}
+          </button>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div className="label">PuTTY / KiTTY / SuperPuTTY</div>
+            <div className="hint">.reg, Sessions.xml, ~/.putty/sessions</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => importClient('putty-local')}>
+              <Icon name="import" /> {t('importPuttyLocal')}
+            </button>
+            <button className="btn" onClick={() => importClient('putty')}>
+              <Icon name="folder" /> {t('importPutty')}
+            </button>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div className="label">OpenSSH</div>
+            <div className="hint">~/.ssh/config</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              className="btn"
+              onClick={async () => {
+                const n = await attempt(() => api.importSshConfig())
+                if (n !== undefined) toast(`${t('imported')}: ${n} hosts`)
+              }}
+            >
+              <Icon name="import" /> {t('importSshConfig')}
+            </button>
+            <button className="btn" onClick={() => importClient('sshconfig')}>
+              <Icon name="folder" /> {t('importSshConfigFile')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 

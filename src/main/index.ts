@@ -1,15 +1,23 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type IpcMainInvokeEvent } from 'electron'
-import { spawn } from 'node:child_process'
-import { promises as fsp, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, promises as fsp, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Host, HostInput, Identity, IdentityInput, LoginStep, OpenTermApi, ProxyConfig, SessionTarget } from '@shared/types'
+import type { Host, HostInput, Identity, IdentityInput, ImportClientSource, ImportSummary, LoginStep, OpenTermApi, ProxyConfig, SessionTarget } from '@shared/types'
 import { suggest } from './complete'
 import { figSpecs } from './figspecs'
 import { Forwarding } from './forwarding'
 import { stepMatcher } from './automation'
-import { importFile, isImportFile } from './importer'
+import {
+  decodeBuffer,
+  importFile,
+  isImportFile,
+  parseExternalImport,
+  parsePuttySessionFiles,
+  parsePuttyWindowsRegistry,
+  parseSshConfigToImport
+} from './importer'
 import { generateKey, importKey, installKeyOnHost } from './keys'
 import { LocalHooks } from './localCommand'
 import { Logs } from './logs'
@@ -18,7 +26,6 @@ import { listAgentKeys } from './ssh'
 import { Sessions } from './sessions'
 import { launch, localHome, localList, Sftp, splitCommand, type Opener } from './sftp'
 import { historyOverview, loadShellHistory, type ShellHistory } from './shellHistory'
-import { parseJump, parseSshConfig } from './sshconfig'
 import { Store } from './store'
 import { Sync } from './sync'
 
@@ -147,6 +154,15 @@ function cleanIdentity(input: IdentityInput, store: Store): Omit<Identity, 'id'>
   }
 }
 
+function tryReadKey(file: string): string | null {
+  try {
+    if (!file || !existsSync(file) || !statSync(file).isFile()) return null
+    return readFileSync(file, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 function importSshConfig(store: Store): number {
   let text: string
   try {
@@ -154,83 +170,76 @@ function importSshConfig(store: Store): number {
   } catch {
     throw new Error('~/.ssh/config não encontrado')
   }
-  const entries = parseSshConfig(text, homedir())
-  const byAlias = new Map<string, string>()
-  const findHost = (hostname: string, user: string, port: number): Host | undefined =>
-    store.hosts().find((h) => h.hostname === hostname && h.username === user && h.port === port)
-  const keyByFile = new Map<string, string | null>()
-  const keyFor = (file: string | undefined): string | null => {
-    if (!file) return null
-    if (!keyByFile.has(file)) {
+  const parsed = parseSshConfigToImport(text, homedir(), { readKey: tryReadKey })
+  const sum = store.batch(() => importFile(store, parsed))
+  return sum.hosts
+}
+
+function importLocalPutty(store: Store): ImportSummary {
+  if (process.platform === 'win32') {
+    let output = ''
+    for (const key of ['HKCU\\Software\\SimonTatham\\PuTTY\\Sessions', 'HKCU\\Software\\9bis.com\\KiTTY\\Sessions']) {
       try {
-        keyByFile.set(file, importKey(store, { label: file.split('/').pop()!, privateKey: readFileSync(file, 'utf8') }).id)
+        output += '\n' + execFileSync('reg', ['query', key, '/s'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
       } catch {
-        keyByFile.set(file, null) // encrypted or unreadable keys are skipped
+        // Registry key not present
       }
     }
-    return keyByFile.get(file)!
+    if (!output.trim()) throw new Error('Nenhuma sessão do PuTTY encontrada no Registro do Windows')
+    const parsed = parsePuttyWindowsRegistry(output, tryReadKey)
+    return store.batch(() => importFile(store, parsed))
   }
 
-  let created = 0
-  for (const e of entries) {
-    const user = e.user ?? ''
-    const port = e.port ?? 22
-    const existing = findHost(e.hostname, user, port)
-    if (existing) {
-      byAlias.set(e.alias, existing.id)
-      continue
-    }
-    const host = store.saveHost({
-      label: e.alias,
-      group: 'ssh config',
-      hostname: e.hostname,
-      port,
-      username: user,
-      protocol: 'ssh',
-      hasPassword: false,
-      keyId: keyFor(e.identityFile),
-      identityId: null,
-      useAgent: true,
-      agentForward: false,
-      jumpHostId: null,
-      startupSnippetId: null,
-      tags: []
+  const dir = join(homedir(), '.putty', 'sessions')
+  if (!existsSync(dir)) throw new Error('Pasta ~/.putty/sessions não encontrada (exporte um arquivo .reg do PuTTY para importar)')
+  const files = readdirSync(dir)
+    .map((name) => {
+      try {
+        const full = join(dir, name)
+        return statSync(full).isFile() ? { name, content: readFileSync(full, 'utf8') } : null
+      } catch {
+        return null
+      }
     })
-    byAlias.set(e.alias, host.id)
-    created++
+    .filter((x): x is { name: string; content: string } => x !== null)
+  if (files.length === 0) throw new Error('Nenhuma sessão encontrada em ~/.putty/sessions')
+  const parsed = parsePuttySessionFiles(files, tryReadKey)
+  return store.batch(() => importFile(store, parsed))
+}
+
+async function importFromClientDialog(store: Store, source: ImportClientSource): Promise<ImportSummary | null> {
+  if (source === 'putty-local') {
+    return importLocalPutty(store)
   }
-  for (const e of entries) {
-    if (!e.proxyJump) continue
-    const id = byAlias.get(e.alias)
-    const host = id && store.host(id)
-    if (!host || host.jumpHostId) continue
-    let jumpId = byAlias.get(e.proxyJump)
-    if (!jumpId) {
-      const j = parseJump(e.proxyJump)
-      const jumpHost =
-        findHost(j.host, j.user ?? '', j.port ?? 22) ??
-        store.saveHost({
-          label: e.proxyJump,
-          group: 'ssh config',
-          hostname: j.host,
-          port: j.port ?? 22,
-          username: j.user ?? '',
-          protocol: 'ssh',
-          hasPassword: false,
-          keyId: null,
-          identityId: null,
-          useAgent: true,
-          agentForward: false,
-          jumpHostId: null,
-          startupSnippetId: null,
-          tags: []
-        })
-      jumpId = jumpHost.id
-      byAlias.set(e.proxyJump, jumpId)
-    }
-    if (jumpId !== host.id) store.saveHost({ ...host, jumpHostId: jumpId })
+  const filtersBySource: Record<Exclude<ImportClientSource, 'putty-local'>, Electron.FileFilter[]> = {
+    termius: [
+      { name: 'Termius (CSV, SSH Config, JSON)', extensions: ['csv', 'json', 'txt', 'conf', 'config', 'ssh'] },
+      { name: 'Todos os arquivos', extensions: ['*'] }
+    ],
+    putty: [
+      { name: 'PuTTY / KiTTY / SuperPuTTY (.reg, .xml)', extensions: ['reg', 'xml', 'txt'] },
+      { name: 'Todos os arquivos', extensions: ['*'] }
+    ],
+    mobaxterm: [
+      { name: 'MobaXterm (.mxtsessions, MobaXterm.ini)', extensions: ['mxtsessions', 'ini', 'txt'] },
+      { name: 'Todos os arquivos', extensions: ['*'] }
+    ],
+    sshconfig: [
+      { name: 'Todos os arquivos', extensions: ['*'] },
+      { name: 'SSH Config', extensions: ['config', 'conf', 'ssh', 'txt'] }
+    ]
   }
-  return created
+  const defaultPath = source === 'sshconfig' ? join(homedir(), '.ssh') : undefined
+  const res = await dialog.showOpenDialog(win!, {
+    defaultPath,
+    filters: filtersBySource[source],
+    properties: ['openFile', 'showHiddenFiles']
+  })
+  if (res.canceled || !res.filePaths[0]) return null
+  const filePath = res.filePaths[0]
+  const buf = readFileSync(filePath)
+  const parsed = parseExternalImport(buf, filePath, source, homedir(), tryReadKey)
+  return store.batch(() => importFile(store, parsed))
 }
 
 app.whenReady().then(() => {
@@ -303,6 +312,7 @@ app.whenReady().then(() => {
     saveWorkspace: (input) => store.saveWorkspace(input),
     deleteWorkspace: (id) => store.deleteWorkspace(id),
     importSshConfig: () => importSshConfig(store),
+    importClient: (source) => importFromClientDialog(store, source),
     generateKey: (req) => generateKey(store, req),
     importKey: (req) => importKey(store, req),
     importKeyFile: async () => {
@@ -349,16 +359,33 @@ app.whenReady().then(() => {
     exportBackup: async () => {
       const res = await dialog.showSaveDialog(win!, { defaultPath: 'openterm-hub-backup.json' })
       if (res.canceled || !res.filePath) return false
-      writeFileSync(res.filePath, JSON.stringify(store.exportBackup(), null, 2))
+      writeFileSync(res.filePath, JSON.stringify(store.exportBackup(), null, 2), { mode: 0o600 })
       return true
     },
     importBackup: async () => {
-      const res = await dialog.showOpenDialog(win!, { filters: [{ name: 'JSON', extensions: ['json'] }], properties: ['openFile'] })
-      if (res.canceled) return null
-      const raw: unknown = JSON.parse(readFileSync(res.filePaths[0], 'utf8'))
-      if (isImportFile(raw)) return store.batch(() => importFile(store, raw))
-      store.importBackup(raw)
-      return 'backup'
+      const res = await dialog.showOpenDialog(win!, {
+        filters: [
+          { name: 'Backup / Migração (JSON, CSV, REG, MobaXterm)', extensions: ['json', 'csv', 'reg', 'mxtsessions', 'ini', 'xml', 'txt', 'conf', 'config'] },
+          { name: 'Todos os arquivos', extensions: ['*'] }
+        ],
+        properties: ['openFile', 'showHiddenFiles']
+      })
+      if (res.canceled || !res.filePaths[0]) return null
+      const filePath = res.filePaths[0]
+      const buf = readFileSync(filePath)
+      const text = decodeBuffer(buf).trim()
+      if (text.startsWith('{')) {
+        const raw: unknown = JSON.parse(text)
+        if ((raw as { format?: string })?.format === 'openterm-hub-backup') {
+          store.importBackup(raw)
+          return 'backup'
+        }
+        if (isImportFile(raw)) {
+          return store.batch(() => importFile(store, raw))
+        }
+      }
+      const parsed = parseExternalImport(buf, filePath, 'auto', homedir(), tryReadKey)
+      return store.batch(() => importFile(store, parsed))
     },
     openSession: (target: SessionTarget, cols, rows) => {
       if (target.kind === 'host') store.touchHost(target.hostId)

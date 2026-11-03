@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import type { Host, SerialPortInfo } from '@shared/types'
+import type { Host, ImportClientSource, ImportSummary, SerialPortInfo } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
 import { GroupBadge, HostBadge, OsGlyph } from '../components/OsIcon'
@@ -221,6 +221,15 @@ function ImportDrawer({ onClose }: { onClose(): void }) {
   const t = useT()
   const toast = useApp((s) => s.toast)
 
+  const notifySummary = (res: ImportSummary): void => {
+    const linked = res.linked ? `, ${res.linked} ${t('linkedToIdentity')}` : ''
+    toast(
+      `${t('imported')}: ${res.hosts} hosts, ${res.identities} ${t('identities').toLowerCase()}, ${res.keys} ${t('keys').toLowerCase()}, ${res.snippets} snippets (${res.skipped} ${t('alreadyPresent')}${linked})`
+    )
+    for (const e of res.errors.slice(0, 5)) toast(e, true)
+    if (res.errors.length > 5) toast(`+${res.errors.length - 5} ${t('error').toLowerCase()}`, true)
+  }
+
   const importConfig = async (): Promise<void> => {
     const n = await attempt(() => api.importSshConfig())
     if (n !== undefined) {
@@ -229,13 +238,20 @@ function ImportDrawer({ onClose }: { onClose(): void }) {
     }
   }
 
+  const importFrom = async (source: ImportClientSource): Promise<void> => {
+    const res = await attempt(() => api.importClient(source))
+    if (!res) return
+    notifySummary(res)
+    onClose()
+  }
+
   const importFile = async (): Promise<void> => {
     const res = await attempt(() => api.importBackup())
     if (!res) return
     if (res === 'backup') {
       toast(t('imported'))
     } else {
-      toast(`${t('imported')}: ${res.hosts} hosts, ${res.identities} ${t('identities').toLowerCase()}, ${res.keys} ${t('keys').toLowerCase()}`)
+      notifySummary(res)
     }
     onClose()
   }
@@ -243,11 +259,29 @@ function ImportDrawer({ onClose }: { onClose(): void }) {
   return (
     <Drawer title={t('importMenu')} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('termius')}>
+          <Icon name="server" /> {t('importTermius')}
+        </button>
+        <div className="dim" style={{ fontSize: 11, marginTop: -6, marginBottom: 2, paddingLeft: 4 }}>
+          {t('importTermiusHint')}
+        </div>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('mobaxterm')}>
+          <Icon name="terminal" /> {t('importMoba')}
+        </button>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('putty')}>
+          <Icon name="folder" /> {t('importPutty')}
+        </button>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('putty-local')}>
+          <Icon name="import" /> {t('importPuttyLocal')}
+        </button>
         <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={importConfig}>
           <Icon name="import" /> {t('importSshConfig')}
         </button>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('sshconfig')}>
+          <Icon name="folder" /> {t('importSshConfigFile')}
+        </button>
         <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={importFile}>
-          <Icon name="folder" /> {t('importBackup')}
+          <Icon name="key" /> {t('importBackup')}
         </button>
         <p className="note">{t('importHint')}</p>
       </div>

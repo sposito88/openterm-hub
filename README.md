@@ -29,7 +29,7 @@ O script baixa a versão mais recente para o seu sistema e **confere o SHA-256**
 - **macOS:** coloca o app em `/Applications`.
 - **Windows:** abre o instalador.
 
-Prefere ler antes de rodar? Baixe o [install.sh](install.sh) ou o [install.ps1](install.ps1), confira e execute. Opções: `OPENTERM_VERSION=v0.4.2` (versão específica), `OPENTERM_APPIMAGE=1` (forçar o AppImage) e `OPENTERM_DRY_RUN=1` (só baixar e verificar).
+Prefere ler antes de rodar? Baixe o [install.sh](install.sh) ou o [install.ps1](install.ps1), confira e execute. Opções: `OPENTERM_VERSION=v0.4.3` (versão específica), `OPENTERM_APPIMAGE=1` (forçar o AppImage) e `OPENTERM_DRY_RUN=1` (só baixar e verificar).
 
 ### Download manual
 
@@ -71,8 +71,8 @@ Detalhes em [BUILDING.md](BUILDING.md).
 | **Histórico** | Painel ao lado do terminal com busca nos comandos já usados (neste app e no histórico do seu shell): clique para digitar, ▶ para executar, salve como snippet ou remova. Sugere salvar os 3 comandos mais usados como snippets. |
 | **Logs** | Histórico de conexões (quando, para onde, duração e como terminou) e, se ativado, gravação da saída das sessões, que pode ser revista depois. |
 | **Atalhos** | Todos configuráveis em Configurações → Atalhos: trocar de aba (Ctrl+1…9, Alt+←/→), fechar aba, copiar, colar, selecionar tudo, buscar, zoom da fonte, abrir terminal local, serial, SFTP, port forwarding, snippets e configurações. |
-| **Migração** | Importa hosts, senhas, chaves, snippets e known hosts de um arquivo JSON documentado ([docs/IMPORT.md](docs/IMPORT.md)), além do `~/.ssh/config`. |
-| **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup em JSON (sem segredos). |
+| **Migração** | Importa hosts, grupos, senhas, chaves, snippets e known hosts do **Termius** (CSV, SSH Config, JSON), **PuTTY / KiTTY / SuperPuTTY** (`.reg`, `Sessions.xml` ou instalação local), **MobaXterm** (`.mxtsessions`, `MobaXterm.ini`), `~/.ssh/config` e do JSON de migração ([docs/IMPORT.md](docs/IMPORT.md)). |
+| **Outros** | Tema da interface escuro, claro ou do sistema; português e inglês; backup completo em JSON (incluindo senhas, chaves privadas e configurações). |
 
 ## Em imagens
 
