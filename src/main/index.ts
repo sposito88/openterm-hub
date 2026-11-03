@@ -11,12 +11,15 @@ import { Forwarding } from './forwarding'
 import { stepMatcher } from './automation'
 import {
   decodeBuffer,
+  findTermiusIndexedDbPath,
+  getTermiusLocalKey,
   importFile,
   isImportFile,
   parseExternalImport,
   parsePuttySessionFiles,
   parsePuttyWindowsRegistry,
-  parseSshConfigToImport
+  parseSshConfigToImport,
+  parseTermiusLocalDatabase
 } from './importer'
 import { generateKey, importKey, installKeyOnHost } from './keys'
 import { LocalHooks } from './localCommand'
@@ -207,11 +210,23 @@ function importLocalPutty(store: Store): ImportSummary {
   return store.batch(() => importFile(store, parsed))
 }
 
+function importLocalTermius(store: Store): ImportSummary {
+  const dbPath = findTermiusIndexedDbPath(homedir())
+  if (!dbPath) throw new Error('Banco de dados local do Termius não encontrado')
+  const localKey = getTermiusLocalKey()
+  const parsed = parseTermiusLocalDatabase(dbPath, localKey)
+  if (parsed.hosts?.length === 0) throw new Error('Nenhum host encontrado no banco de dados local do Termius')
+  return store.batch(() => importFile(store, parsed))
+}
+
 async function importFromClientDialog(store: Store, source: ImportClientSource): Promise<ImportSummary | null> {
+  if (source === 'termius-local') {
+    return importLocalTermius(store)
+  }
   if (source === 'putty-local') {
     return importLocalPutty(store)
   }
-  const filtersBySource: Record<Exclude<ImportClientSource, 'putty-local'>, Electron.FileFilter[]> = {
+  const filtersBySource: Record<Exclude<ImportClientSource, 'putty-local' | 'termius-local'>, Electron.FileFilter[]> = {
     termius: [
       { name: 'Termius (CSV, SSH Config, JSON)', extensions: ['csv', 'json', 'txt', 'conf', 'config', 'ssh'] },
       { name: 'Todos os arquivos', extensions: ['*'] }

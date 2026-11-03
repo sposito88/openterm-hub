@@ -259,6 +259,9 @@ function ImportDrawer({ onClose }: { onClose(): void }) {
   return (
     <Drawer title={t('importMenu')} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('termius-local')}>
+          <Icon name="import" /> {t('importTermiusLocal')}
+        </button>
         <button type="button" className="btn" style={{ height: 38, justifyContent: 'flex-start' }} onClick={() => importFrom('termius')}>
           <Icon name="server" /> {t('importTermius')}
         </button>

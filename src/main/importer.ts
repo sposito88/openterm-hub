@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { execSync } from 'node:child_process'
+import v8 from 'node:v8'
+import nacl from 'tweetnacl'
 import type { Host, ImportClientSource, ImportSummary, OsId, Protocol, ProxyType } from '@shared/types'
 import { describeKey, importKey } from './keys'
 import { parseJump, parseSshConfig } from './sshconfig'
@@ -1118,4 +1123,434 @@ export function parseExternalImport(
   }
 
   throw new Error('Formato de arquivo não reconhecido')
+}
+
+// ---- Termius local auto-discovery (IndexedDB LevelDB reader) ----------------
+
+function snappyDecompress(buf: Buffer): Buffer {
+  let pos = 0
+  let ulen = 0
+  let shift = 0
+  while (pos < buf.length) {
+    const b = buf[pos++]
+    ulen |= (b & 0x7f) << shift
+    if (!(b & 0x80)) break
+    shift += 7
+  }
+  const out = Buffer.alloc(ulen)
+  let outPos = 0
+  while (pos < buf.length && outPos < ulen) {
+    const tag = buf[pos++]
+    const etype = tag & 0x03
+    if (etype === 0) {
+      let len = (tag >> 2) + 1
+      if (len > 60) {
+        const extra = len - 60
+        len = buf.readUIntLE(pos, extra) + 1
+        pos += extra
+      }
+      buf.copy(out, outPos, pos, pos + len)
+      pos += len
+      outPos += len
+    } else {
+      let len = 0
+      let offset = 0
+      if (etype === 1) {
+        len = ((tag >> 2) & 7) + 4
+        offset = ((tag & 0xe0) << 3) | buf[pos++]
+      } else if (etype === 2) {
+        len = (tag >> 2) + 1
+        offset = buf.readUInt16LE(pos)
+        pos += 2
+      } else {
+        len = (tag >> 2) + 1
+        offset = buf.readUInt32LE(pos)
+        pos += 4
+      }
+      if (offset === 0) break
+      for (let i = 0; i < len; i++) {
+        out[outPos] = out[outPos - offset]
+        outPos++
+      }
+    }
+  }
+  return out
+}
+
+function rvar(buf: Buffer, p: number): [number, number] {
+  let v = 0
+  let s = 0
+  while (p < buf.length) {
+    const b = buf[p++]
+    v |= (b & 0x7f) << s
+    if (!(b & 0x80)) break
+    s += 7
+  }
+  return [v, p]
+}
+
+interface LevelDbEntry {
+  key: Buffer
+  val: Buffer
+  seq: number
+  ktype: number
+}
+
+function parseLevelDbBlock(blk: Buffer): LevelDbEntry[] {
+  const numRestarts = blk.readUInt32LE(blk.length - 4)
+  const limit = blk.length - 4 * (numRestarts + 1)
+  let p = 0
+  let lastKey = Buffer.alloc(0)
+  const items: LevelDbEntry[] = []
+  while (p < limit) {
+    let shared: number, unshared: number, vlen: number
+    ;[shared, p] = rvar(blk, p)
+    ;[unshared, p] = rvar(blk, p)
+    ;[vlen, p] = rvar(blk, p)
+    const key = Buffer.concat([lastKey.subarray(0, shared), blk.subarray(p, p + unshared)])
+    p += unshared
+    const val = blk.subarray(p, p + vlen)
+    p += vlen
+    lastKey = key
+    const seq = Number(key.readBigUInt64LE(key.length - 8) >> 8n)
+    const ktype = key[key.length - 8]
+    items.push({ key: key.subarray(0, key.length - 8), val, seq, ktype })
+  }
+  return items
+}
+
+function readLdbEntries(filePath: string): LevelDbEntry[] {
+  const data = readFileSync(filePath)
+  if (data.length < 48) return []
+  const footer = data.subarray(data.length - 48)
+  let p = 0
+  let idxOff: number, idxSz: number
+  ;[, p] = rvar(footer, p)
+  ;[, p] = rvar(footer, p)
+  ;[idxOff, p] = rvar(footer, p)
+  ;[idxSz, p] = rvar(footer, p)
+
+  const idxBlk = ((): Buffer => {
+    const btype = data[idxOff + idxSz]
+    const raw = data.subarray(idxOff, idxOff + idxSz)
+    return btype === 1 ? snappyDecompress(raw) : raw
+  })()
+
+  const out: LevelDbEntry[] = []
+  for (const { val: hval } of parseLevelDbBlock(idxBlk)) {
+    const [boff, p0] = rvar(hval, 0)
+    const [bsz] = rvar(hval, p0)
+    const btype = data[boff + bsz]
+    const raw = data.subarray(boff, boff + bsz)
+    const dblk = btype === 1 ? snappyDecompress(raw) : raw
+    out.push(...parseLevelDbBlock(dblk))
+  }
+  return out
+}
+
+function readLogEntries(filePath: string): LevelDbEntry[] {
+  const data = readFileSync(filePath)
+  let pos = 0
+  let buf = Buffer.alloc(0)
+  const recs: Buffer[] = []
+  while (pos < data.length) {
+    const blockRem = 32768 - (pos % 32768)
+    if (blockRem < 7) {
+      pos += blockRem
+      continue
+    }
+    if (pos + 7 > data.length) break
+    const length = data.readUInt16LE(pos + 4)
+    const rtype = data[pos + 6]
+    pos += 7
+    const frag = data.subarray(pos, pos + length)
+    pos += length
+    if (rtype === 1) recs.push(frag)
+    else if (rtype === 2) buf = Buffer.from(frag)
+    else if (rtype === 3) buf = Buffer.concat([buf, frag])
+    else if (rtype === 4) {
+      buf = Buffer.concat([buf, frag])
+      recs.push(buf)
+      buf = Buffer.alloc(0)
+    }
+  }
+
+  const out: LevelDbEntry[] = []
+  for (const r of recs) {
+    if (r.length < 12) continue
+    const seq = Number(r.readBigUInt64LE(0))
+    const cnt = r.readUInt32LE(8)
+    let p = 12
+    for (let i = 0; i < cnt && p < r.length; i++) {
+      const ktype = r[p++]
+      let klen: number
+      ;[klen, p] = rvar(r, p)
+      const k = r.subarray(p, p + klen)
+      p += klen
+      if (ktype === 1) {
+        let vlen: number
+        ;[vlen, p] = rvar(r, p)
+        const v = r.subarray(p, p + vlen)
+        p += vlen
+        out.push({ key: k, val: v, seq, ktype })
+      } else {
+        out.push({ key: k, val: Buffer.alloc(0), seq, ktype })
+      }
+    }
+  }
+  return out
+}
+
+export function findTermiusIndexedDbPath(home: string): string | null {
+  const candidates: string[] = []
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming')
+    const localAppData = process.env.LOCALAPPDATA || join(home, 'AppData', 'Local')
+    candidates.push(
+      join(appData, 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb'),
+      join(localAppData, 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb')
+    )
+  } else if (process.platform === 'darwin') {
+    candidates.push(
+      join(home, 'Library', 'Application Support', 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb')
+    )
+  } else {
+    // Linux: standard, snap, flatpak
+    candidates.push(
+      join(home, '.config', 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb'),
+      join(home, 'snap', 'termius-app', 'current', '.config', 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb'),
+      join(home, '.var', 'app', 'com.termius.Termius', 'config', 'Termius', 'IndexedDB', 'file__0.indexeddb.leveldb')
+    )
+  }
+  for (const c of candidates) {
+    if (existsSync(c)) return c
+  }
+  return null
+}
+
+export function getTermiusLocalKey(): Buffer | null {
+  try {
+    if (process.platform === 'linux') {
+      const out = execSync('secret-tool lookup service termius-app account localKey', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+      if (out) return Buffer.from(out, 'base64')
+    } else if (process.platform === 'darwin') {
+      const out = execSync('security find-generic-password -s termius-app -a localKey -w', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+      if (out) return Buffer.from(out, 'base64')
+    } else if (process.platform === 'win32') {
+      const ps = `powershell.exe -NoProfile -NonInteractive -Command "[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $v = New-Object Windows.Security.Credentials.PasswordVault; try { ($v.Retrieve('termius-app', 'localKey')).Password } catch {}"`
+      const out = execSync(ps, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+      if (out) return Buffer.from(out, 'base64')
+    }
+  } catch {
+    // Keyring access failed or not configured
+  }
+  return null
+}
+
+export function parseTermiusLocalDatabase(dbDir: string, encryptionKey: Buffer | null): ImportFile {
+  const files = readdirSync(dbDir).sort()
+  const map = new Map<string, LevelDbEntry>()
+
+  for (const f of files) {
+    const full = join(dbDir, f)
+    let entries: LevelDbEntry[] = []
+    if (f.endsWith('.ldb')) entries = readLdbEntries(full)
+    else if (f.endsWith('.log')) entries = readLogEntries(full)
+    for (const e of entries) {
+      const kHex = e.key.toString('hex')
+      const existing = map.get(kHex)
+      if (!existing || e.seq > existing.seq) map.set(kHex, e)
+    }
+  }
+
+  const live = Array.from(map.values()).filter((e) => e.ktype === 1)
+
+  const decryptVal = (val: unknown): unknown => {
+    if (typeof val !== 'string' || !encryptionKey) return val
+    try {
+      const ct = Buffer.from(val, 'base64')
+      if (ct.length >= 42 && ct[0] === 4) {
+        const nonce = ct.subarray(2, 26)
+        const box = ct.subarray(26)
+        const opened = nacl.secretbox.open(new Uint8Array(box), new Uint8Array(nonce), new Uint8Array(encryptionKey))
+        if (opened) return Buffer.from(opened).toString('utf8')
+      }
+    } catch {}
+    return val
+  }
+
+  const deepDecrypt = (obj: unknown): unknown => {
+    if (obj === null || obj === undefined) return obj
+    if (Array.isArray(obj)) return obj.map(deepDecrypt)
+    if (typeof obj === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        out[k] = deepDecrypt(v)
+      }
+      return out
+    }
+    if (typeof obj === 'string') return decryptVal(obj)
+    return obj
+  }
+
+  const parseStore = (sid: number): Array<Record<string, unknown>> => {
+    const recs = live.filter((e) => e.key.length > 4 && e.key[0] === 0 && e.key[1] === sid && e.key[2] === 1 && e.key[3] === 1)
+    return recs
+      .map((e) => {
+        const idx = e.val.indexOf(Buffer.from([0xff, 0x10]))
+        if (idx === -1) return null
+        const sub = Buffer.from(e.val.subarray(idx))
+        sub[1] = 0x0f // Align v8 version byte for modern node v8.deserialize
+        try {
+          return deepDecrypt(v8.deserialize(sub)) as Record<string, unknown>
+        } catch {
+          return null
+        }
+      })
+      .filter((x): x is Record<string, unknown> => x !== null)
+  }
+
+  const rawHosts = parseStore(0x0f)
+  const rawGroups = parseStore(0x0e)
+  const rawSshConfigs = parseStore(0x03)
+  const rawIdentities = parseStore(0x0b)
+  const rawKeys = parseStore(0x0a)
+
+  const groupsById = new Map<string, Record<string, unknown>>()
+  for (const g of rawGroups) {
+    const gid = String(g.id ?? g.local_id ?? '')
+    if (gid) groupsById.set(gid, g)
+  }
+
+  const resolveGroup = (g: Record<string, unknown> | null | undefined): string => {
+    if (!g) return ''
+    const names: string[] = []
+    let cur: Record<string, unknown> | null | undefined = g
+    const seen = new Set<string>()
+    while (cur) {
+      const gid = String(cur.id ?? cur.local_id ?? '')
+      if (seen.has(gid)) break
+      seen.add(gid)
+      if (cur.label) names.push(String(cur.label))
+      const parent = cur.parent_group as Record<string, unknown> | undefined
+      cur = parent ? groupsById.get(String(parent.id ?? parent.local_id)) : null
+    }
+    return names.reverse().join(' / ')
+  }
+
+  const sshConfigsById = new Map<string, Record<string, unknown>>()
+  for (const sc of rawSshConfigs) {
+    const id = String(sc.id ?? sc.local_id ?? '')
+    if (id) sshConfigsById.set(id, sc)
+  }
+
+  const identitiesById = new Map<string, Record<string, unknown>>()
+  for (const ident of rawIdentities) {
+    const id = String(ident.id ?? ident.local_id ?? '')
+    if (id) identitiesById.set(id, ident)
+  }
+
+  const keys: NonNullable<ImportFile['keys']> = []
+  const keyRefMap = new Map<string, string>()
+  for (const k of rawKeys) {
+    const priv = String(k.private_key ?? '').trim()
+    if (!priv) continue
+    const ref = `tk_${k.id ?? k.local_id}`
+    keyRefMap.set(String(k.id ?? k.local_id), ref)
+    keys.push({
+      ref,
+      label: String(k.label ?? `termius-key-${k.id ?? k.local_id}`).trim(),
+      privateKey: priv,
+      passphrase: k.passphrase ? String(k.passphrase) : undefined
+    })
+  }
+
+  const identities: NonNullable<ImportFile['identities']> = []
+  const identityRefMap = new Map<string, string>()
+  for (const ident of rawIdentities) {
+    const ref = `ti_${ident.id ?? ident.local_id}`
+    identityRefMap.set(String(ident.id ?? ident.local_id), ref)
+    let kRef: string | undefined
+    if (ident.ssh_key) {
+      const kid = String((ident.ssh_key as Record<string, unknown>).id ?? (ident.ssh_key as Record<string, unknown>).local_id)
+      kRef = keyRefMap.get(kid)
+    }
+    identities.push({
+      ref,
+      label: String(ident.label ?? ident.username ?? 'Identidade').trim(),
+      username: String(ident.username ?? '').trim(),
+      password: ident.password ? String(ident.password) : undefined,
+      keyRef: kRef
+    })
+  }
+
+  const hosts: NonNullable<ImportFile['hosts']> = []
+  const groupsSet = new Set<string>()
+
+  for (let i = 0; i < rawHosts.length; i++) {
+    const h = rawHosts[i]
+    const hostname = String(h.address ?? h.hostname ?? '').trim()
+    if (!hostname) continue
+
+    let grp = ''
+    if (h.group) {
+      const gid = String((h.group as Record<string, unknown>).id ?? (h.group as Record<string, unknown>).local_id)
+      grp = resolveGroup(groupsById.get(gid) ?? (h.group as Record<string, unknown>))
+    }
+    if (!grp) grp = 'Termius'
+    const normalizedGrp = cleanGroupPath(grp, 'Termius')
+    if (normalizedGrp) groupsSet.add(normalizedGrp)
+
+    let sc: Record<string, unknown> | null = null
+    if (h.ssh_config) {
+      const scid = String((h.ssh_config as Record<string, unknown>).id ?? (h.ssh_config as Record<string, unknown>).local_id)
+      sc = sshConfigsById.get(scid) ?? (h.ssh_config as Record<string, unknown>)
+    }
+
+    let username: string | undefined
+    let password: string | undefined
+    let keyRef: string | undefined
+    let identityRef: string | undefined
+
+    if (sc && sc.identity) {
+      const iid = String((sc.identity as Record<string, unknown>).id ?? (sc.identity as Record<string, unknown>).local_id)
+      const ident = identitiesById.get(iid)
+      if (ident) {
+        identityRef = identityRefMap.get(iid)
+        username = ident.username ? String(ident.username).trim() : undefined
+        password = ident.password ? String(ident.password) : undefined
+        if (ident.ssh_key) {
+          const kid = String((ident.ssh_key as Record<string, unknown>).id ?? (ident.ssh_key as Record<string, unknown>).local_id)
+          keyRef = keyRefMap.get(kid)
+        }
+      }
+    }
+
+    const port = Number(sc?.port) || 22
+    const label = String(h.label ?? '').trim() || hostname
+
+    hosts.push({
+      ref: `th_${h.id ?? h.local_id ?? i}`,
+      label,
+      group: normalizedGrp,
+      hostname,
+      port,
+      username,
+      password,
+      keyRef,
+      identityRef,
+      protocol: 'ssh',
+      os: (h.os_name as OsId) || null,
+      agentForward: !!sc?.agent_forwarding
+    })
+  }
+
+  return {
+    format: 'openterm-hub-import',
+    version: 1,
+    groups: [...groupsSet],
+    keys,
+    identities,
+    hosts
+  }
 }

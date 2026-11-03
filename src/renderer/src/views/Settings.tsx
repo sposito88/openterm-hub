@@ -645,9 +645,14 @@ function BackupSection() {
             <div className="label">Termius</div>
             <div className="hint">{t('importTermiusHint')}</div>
           </div>
-          <button className="btn" onClick={() => importClient('termius')}>
-            <Icon name="server" /> {t('importTermius')}
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => importClient('termius-local')}>
+              <Icon name="import" /> {t('importTermiusLocal')}
+            </button>
+            <button className="btn" onClick={() => importClient('termius')}>
+              <Icon name="folder" /> {t('importTermius')}
+            </button>
+          </div>
         </div>
         <div className="setting-row">
           <div>

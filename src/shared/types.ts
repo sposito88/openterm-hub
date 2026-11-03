@@ -364,7 +364,7 @@ export interface AgentKey {
   securityKey: boolean
 }
 
-export type ImportClientSource = 'termius' | 'putty' | 'putty-local' | 'mobaxterm' | 'sshconfig'
+export type ImportClientSource = 'termius' | 'termius-local' | 'putty' | 'putty-local' | 'mobaxterm' | 'sshconfig'
 
 export interface ImportSummary {
   hosts: number
