@@ -215,7 +215,9 @@ function importLocalTermius(store: Store): ImportSummary {
   if (!dbPath) throw new Error('Banco de dados local do Termius não encontrado')
   const localKey = getTermiusLocalKey()
   const parsed = parseTermiusLocalDatabase(dbPath, localKey)
-  if (parsed.hosts?.length === 0) throw new Error('Nenhum host encontrado no banco de dados local do Termius')
+  if (parsed.hosts?.length === 0) {
+    throw new Error('Nenhum host encontrado no banco de dados local do Termius. Feche o Termius por completo e tente novamente.')
+  }
   return store.batch(() => importFile(store, parsed))
 }
 
@@ -228,7 +230,7 @@ async function importFromClientDialog(store: Store, source: ImportClientSource):
   }
   const filtersBySource: Record<Exclude<ImportClientSource, 'putty-local' | 'termius-local'>, Electron.FileFilter[]> = {
     termius: [
-      { name: 'Termius (CSV, SSH Config, JSON)', extensions: ['csv', 'json', 'txt', 'conf', 'config', 'ssh'] },
+      { name: 'Termius (CSV, SSH Config, JSON, LevelDB)', extensions: ['csv', 'json', 'txt', 'conf', 'config', 'ssh', 'ldb', 'log'] },
       { name: 'Todos os arquivos', extensions: ['*'] }
     ],
     putty: [

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { execSync } from 'node:child_process'
 import v8 from 'node:v8'
 import nacl from 'tweetnacl'
@@ -1066,6 +1066,21 @@ export function parseExternalImport(
   const trimmed = text.trim()
   const lowerName = filename.toLowerCase()
 
+  // 0. LevelDB file / directory from Termius
+  if (
+    lowerName.endsWith('.ldb') ||
+    lowerName.endsWith('.log') ||
+    lowerName.endsWith('current') ||
+    lowerName.endsWith('manifest-000001') ||
+    lowerName.includes('.leveldb')
+  ) {
+    try {
+      const dir = existsSync(filename) && statSync(filename).isDirectory() ? filename : dirname(filename)
+      const res = parseTermiusLocalDatabase(dir, getTermiusLocalKey())
+      if (res.hosts && res.hosts.length > 0) return res
+    } catch {}
+  }
+
   // 1. JSON files (OpenTerm Hub import, Termius JSON)
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     const parsed: unknown = JSON.parse(trimmed)
@@ -1331,13 +1346,52 @@ export function findTermiusIndexedDbPath(home: string): string | null {
 export function getTermiusLocalKey(): Buffer | null {
   try {
     if (process.platform === 'linux') {
-      const out = execSync('secret-tool lookup service termius-app account localKey', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
-      if (out) return Buffer.from(out, 'base64')
+      const candidates = [
+        'secret-tool lookup service termius-app account localKey',
+        'secret-tool lookup service Termius account localKey',
+        'secret-tool lookup service termius account localKey'
+      ]
+      for (const cmd of candidates) {
+        try {
+          const out = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+          if (out) return Buffer.from(out, 'base64')
+        } catch {}
+      }
+      // Python DBus fallback (Secret Service API directly)
+      const py =
+        "import dbus\n" +
+        "bus = dbus.SessionBus()\n" +
+        "service = bus.get_object('org.freedesktop.secrets', '/org/freedesktop/secrets')\n" +
+        "iface = dbus.Interface(service, 'org.freedesktop.Secret.Service')\n" +
+        "for svc in ['termius-app', 'Termius', 'termius']:\n" +
+        "    unlocked, _ = iface.SearchItems({'service': svc, 'account': 'localKey'})\n" +
+        "    if not unlocked:\n" +
+        "        unlocked, _ = iface.SearchItems({'service': svc})\n" +
+        "    if unlocked:\n" +
+        "        _, session_path = iface.OpenSession('plain', '')\n" +
+        "        item = bus.get_object('org.freedesktop.secrets', unlocked[0])\n" +
+        "        item_iface = dbus.Interface(item, 'org.freedesktop.Secret.Item')\n" +
+        "        secret = item_iface.GetSecret(session_path)\n" +
+        "        print(bytes(secret[2]).decode('utf-8'))\n" +
+        "        break\n"
+      try {
+        const out = execSync(`python3 -c "${py.replace(/"/g, '\\"')}"`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+        if (out) return Buffer.from(out, 'base64')
+      } catch {}
     } else if (process.platform === 'darwin') {
-      const out = execSync('security find-generic-password -s termius-app -a localKey -w', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
-      if (out) return Buffer.from(out, 'base64')
+      const cmds = [
+        'security find-generic-password -s termius-app -a localKey -w',
+        'security find-generic-password -s Termius -a localKey -w',
+        'security find-generic-password -s termius -a localKey -w'
+      ]
+      for (const cmd of cmds) {
+        try {
+          const out = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+          if (out) return Buffer.from(out, 'base64')
+        } catch {}
+      }
     } else if (process.platform === 'win32') {
-      const ps = `powershell.exe -NoProfile -NonInteractive -Command "[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $v = New-Object Windows.Security.Credentials.PasswordVault; try { ($v.Retrieve('termius-app', 'localKey')).Password } catch {}"`
+      const ps = `powershell.exe -NoProfile -NonInteractive -Command "[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $v = New-Object Windows.Security.Credentials.PasswordVault; foreach ($svc in @('termius-app','Termius','termius')) { try { $p = ($v.Retrieve($svc, 'localKey')).Password; if ($p) { Write-Output $p; break } } catch {} }"`
       const out = execSync(ps, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
       if (out) return Buffer.from(out, 'base64')
     }
@@ -1354,8 +1408,10 @@ export function parseTermiusLocalDatabase(dbDir: string, encryptionKey: Buffer |
   for (const f of files) {
     const full = join(dbDir, f)
     let entries: LevelDbEntry[] = []
-    if (f.endsWith('.ldb')) entries = readLdbEntries(full)
-    else if (f.endsWith('.log')) entries = readLogEntries(full)
+    try {
+      if (f.endsWith('.ldb')) entries = readLdbEntries(full)
+      else if (f.endsWith('.log')) entries = readLogEntries(full)
+    } catch {}
     for (const e of entries) {
       const kHex = e.key.toString('hex')
       const existing = map.get(kHex)
@@ -1393,28 +1449,100 @@ export function parseTermiusLocalDatabase(dbDir: string, encryptionKey: Buffer |
     return obj
   }
 
+  const tryDeserialize = (val: Buffer): Record<string, unknown> | null => {
+    for (let i = 0; i < val.length - 1; i++) {
+      if (val[i] === 0xff && val[i + 1] >= 0x01 && val[i + 1] <= 0x30) {
+        const sub = Buffer.from(val.subarray(i))
+        const orig = sub[1]
+        // Try version 15 (0x0f) which standard Node v8.deserialize accepts
+        sub[1] = 0x0f
+        try {
+          const res = deepDecrypt(v8.deserialize(sub))
+          if (res && typeof res === 'object' && !Array.isArray(res)) return res as Record<string, unknown>
+        } catch {}
+        // Try original version byte
+        sub[1] = orig
+        try {
+          const res = deepDecrypt(v8.deserialize(sub))
+          if (res && typeof res === 'object' && !Array.isArray(res)) return res as Record<string, unknown>
+        } catch {}
+      }
+    }
+    // Fallback: UTF-8 JSON
+    if (val.length > 2) {
+      try {
+        const s = val.toString('utf8')
+        const start = s.indexOf('{')
+        if (start !== -1) {
+          const res = deepDecrypt(JSON.parse(s.substring(start)))
+          if (res && typeof res === 'object' && !Array.isArray(res)) return res as Record<string, unknown>
+        }
+      } catch {}
+    }
+    return null
+  }
+
   const parseStore = (sid: number): Array<Record<string, unknown>> => {
     const recs = live.filter((e) => e.key.length > 4 && e.key[0] === 0 && e.key[1] === sid && e.key[2] === 1 && e.key[3] === 1)
     return recs
-      .map((e) => {
-        const idx = e.val.indexOf(Buffer.from([0xff, 0x10]))
-        if (idx === -1) return null
-        const sub = Buffer.from(e.val.subarray(idx))
-        sub[1] = 0x0f // Align v8 version byte for modern node v8.deserialize
-        try {
-          return deepDecrypt(v8.deserialize(sub)) as Record<string, unknown>
-        } catch {
-          return null
-        }
-      })
+      .map((e) => tryDeserialize(e.val))
       .filter((x): x is Record<string, unknown> => x !== null)
   }
 
-  const rawHosts = parseStore(0x0f)
-  const rawGroups = parseStore(0x0e)
-  const rawSshConfigs = parseStore(0x03)
-  const rawIdentities = parseStore(0x0b)
-  const rawKeys = parseStore(0x0a)
+  let rawHosts = parseStore(0x0f)
+  let rawGroups = parseStore(0x0e)
+  let rawSshConfigs = parseStore(0x03)
+  let rawIdentities = parseStore(0x0b)
+  let rawKeys = parseStore(0x0a)
+
+  // Universal scan fallback if specific store ID didn't find hosts
+  if (rawHosts.length === 0) {
+    const hostList: Array<Record<string, unknown>> = []
+    const groupList: Array<Record<string, unknown>> = []
+    const scList: Array<Record<string, unknown>> = []
+    const identList: Array<Record<string, unknown>> = []
+    const keyList: Array<Record<string, unknown>> = []
+
+    for (const e of live) {
+      const rec = tryDeserialize(e.val)
+      if (!rec) continue
+
+      if (
+        (rec.address !== undefined || rec.hostname !== undefined || (rec.label !== undefined && (rec.ssh_config !== undefined || rec.credentials_mode !== undefined || rec.telnet_config !== undefined))) &&
+        rec.parent_group === undefined &&
+        rec.connected_at === undefined &&
+        rec.session_log_data === undefined &&
+        rec.workspaceTerminals === undefined
+      ) {
+        hostList.push(rec)
+      } else if (rec.parent_group !== undefined && rec.address === undefined) {
+        groupList.push(rec)
+      } else if (rec.port !== undefined && (rec.agent_forwarding !== undefined || rec.env_variables !== undefined || rec.use_ssh_key !== undefined || rec.strict_host_key_check !== undefined)) {
+        scList.push(rec)
+      } else if (rec.username !== undefined && (rec.password !== undefined || rec.ssh_key !== undefined || rec.sshid_mode !== undefined)) {
+        identList.push(rec)
+      } else if (rec.private_key !== undefined || rec.public_key !== undefined) {
+        keyList.push(rec)
+      }
+    }
+
+    if (hostList.length > 0) {
+      // Deduplicate hosts by id/local_id if present
+      const seenIds = new Set<string>()
+      for (const h of hostList) {
+        const id = String(h.id ?? h.local_id ?? '')
+        if (id) {
+          if (seenIds.has(id)) continue
+          seenIds.add(id)
+        }
+        rawHosts.push(h)
+      }
+      if (rawGroups.length === 0) rawGroups = groupList
+      if (rawSshConfigs.length === 0) rawSshConfigs = scList
+      if (rawIdentities.length === 0) rawIdentities = identList
+      if (rawKeys.length === 0) rawKeys = keyList
+    }
+  }
 
   const groupsById = new Map<string, Record<string, unknown>>()
   for (const g of rawGroups) {
