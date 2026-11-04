@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import type { Identity, IdentityInput } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
-import { Check, Drawer, Field, FormActions } from '../components/ui'
+import { Check, Drawer, Field, FormActions, useViewMode, ViewToggle } from '../components/ui'
 import { useT } from '../i18n'
 import { attempt, useApp } from '../state'
 
@@ -134,6 +134,9 @@ export function Identities() {
   const t = useT()
   const snap = useApp((s) => s.snapshot)!
   const [editing, setEditing] = useState<Identity | null | undefined>(undefined)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [viewMode, setViewMode] = useViewMode('identities', 'grid')
   const usage = (id: string): number => snap.hosts.filter((h) => h.identityId === id).length
 
   const remove = async (i: Identity): Promise<void> => {
@@ -141,10 +144,19 @@ export function Identities() {
     if (confirm(msg)) await attempt(() => api.deleteIdentity(i.id))
   }
 
+  const visibleIdentities = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return [...snap.identities]
+      .filter((i) => !q || i.label.toLowerCase().includes(q) || i.username.toLowerCase().includes(q))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [snap.identities, query])
+
   return (
-    <div className="page">
-      <div className="page-head">
+    <div className="page" onClick={() => setSelectedId(null)}>
+      <div className="page-head" onClick={(e) => e.stopPropagation()}>
         <h1>{t('identities')}</h1>
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <input className="input search" placeholder={t('search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="btn primary" onClick={() => setEditing(null)}>
           <Icon name="plus" /> {t('newIdentity')}
         </button>
@@ -152,31 +164,52 @@ export function Identities() {
       <p className="note" style={{ marginTop: -6, marginBottom: 16 }}>
         {t('identitiesHint')}
       </p>
-      {snap.identities.length === 0 ? (
+      {visibleIdentities.length === 0 ? (
         <div className="empty">{t('noIdentities')}</div>
       ) : (
-        <div className="list">
-          {[...snap.identities]
-            .sort((a, b) => a.label.localeCompare(b.label))
-            .map((i) => {
-              const key = i.keyId ? snap.keys.find((k) => k.id === i.keyId) : undefined
-              return (
-                <div key={i.id} className="list-item">
+        <div className={viewMode === 'grid' ? 'cards' : 'cards list-mode'}>
+          {visibleIdentities.map((i) => {
+            const key = i.keyId ? snap.keys.find((k) => k.id === i.keyId) : undefined
+            const isSelected = selectedId === i.id
+            return (
+              <div
+                key={i.id}
+                tabIndex={0}
+                className={`card ${isSelected ? 'selected' : ''}`}
+                title={t('doubleClickToEdit')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedId(i.id)
+                }}
+                onFocus={() => setSelectedId(i.id)}
+                onDoubleClick={() => setEditing(i)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    setEditing(i)
+                  } else if (e.key === 'Delete') {
+                    e.preventDefault()
+                    void remove(i)
+                  }
+                }}
+              >
+                <div className="card-icon">
                   <Icon name="user" size={18} />
-                  <div className="grow">
-                    <div>
-                      <b>{i.label}</b> <span className="dim mono">{i.username}</span>
-                    </div>
-                    <div>
-                      {i.hasPassword && <span className="chip">{t('passwordSaved')}</span>}
-                      {key && (
-                        <span className="chip">
-                          {t('key')}: {key.label}
-                        </span>
-                      )}
-                      <span className="chip">{t('usedBy').replace('{n}', String(usage(i.id)))}</span>
-                    </div>
+                </div>
+                <div className="card-body">
+                  <div className="card-title">{i.label}</div>
+                  <div className="card-sub mono">{i.username}</div>
+                  <div className="card-chips">
+                    {i.hasPassword && <span className="chip">{t('passwordSaved')}</span>}
+                    {key && (
+                      <span className="chip">
+                        {t('key')}: {key.label}
+                      </span>
+                    )}
+                    <span className="chip">{t('usedBy').replace('{n}', String(usage(i.id)))}</span>
                   </div>
+                </div>
+                <div className="card-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                   <button className="btn small icon" title={t('edit')} onClick={() => setEditing(i)}>
                     <Icon name="edit" />
                   </button>
@@ -184,8 +217,9 @@ export function Identities() {
                     <Icon name="trash" />
                   </button>
                 </div>
-              )
-            })}
+              </div>
+            )
+          })}
         </div>
       )}
       {editing !== undefined && <IdentityEditor identity={editing} onClose={() => setEditing(undefined)} />}

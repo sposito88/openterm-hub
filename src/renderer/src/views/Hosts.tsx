@@ -3,7 +3,7 @@ import type { Host, ImportClientSource, ImportSummary, SerialPortInfo } from '@s
 import { api } from '../api'
 import { Icon } from '../components/Icon'
 import { GroupBadge, HostBadge, OsGlyph } from '../components/OsIcon'
-import { Drawer, Field, FormActions } from '../components/ui'
+import { Drawer, Field, FormActions, useViewMode, ViewToggle } from '../components/ui'
 import { translate, useT } from '../i18n'
 import { attempt, useApp } from '../state'
 import { HostEditor } from './HostEditor'
@@ -321,6 +321,8 @@ export function Hosts() {
 
   const [editing, setEditing] = useState<Host | null | undefined>(undefined)
   const [editingGroup, setEditingGroup] = useState<{ path: string | null; parent: string } | undefined>(undefined)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useViewMode('hosts', 'grid')
   const [serial, setSerial] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -425,8 +427,8 @@ export function Hosts() {
   const formatHostCount = (n: number): string => (n === 1 ? t('hostSingular') : t('hostPlural').replace('{n}', String(n)))
 
   return (
-    <div className="page">
-      <div className="page-head">
+    <div className="page" onClick={() => setSelectedId(null)}>
+      <div className="page-head" onClick={(e) => e.stopPropagation()}>
         <div className="split-btn-wrap" ref={splitRef}>
           <button className="btn split-main" onClick={() => setEditing(null)}>
             <Icon name="plus" size={15} /> {t('newHost')}
@@ -508,6 +510,7 @@ export function Hosts() {
               <span>{t('sortName')}</span>
             </button>
           </div>
+          <ViewToggle mode={viewMode} onChange={setViewMode} />
           <input className="input search" placeholder={t('search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
@@ -552,15 +555,33 @@ export function Hosts() {
       {visibleGroups.length > 0 && (
         <section className="entity-section">
           <div className="section-title">{t('groups')}</div>
-          <div className="cards">
+          <div className={viewMode === 'grid' ? 'cards' : 'cards list-mode'}>
             {visibleGroups.map((g) => (
-              <div key={g.fullPath} className="card" onClick={() => setCurrentGroup(g.fullPath)} title={g.fullPath}>
+              <div
+                key={g.fullPath}
+                tabIndex={0}
+                className={`card ${selectedId === `grp:${g.fullPath}` ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedId(`grp:${g.fullPath}`)
+                  setCurrentGroup(g.fullPath)
+                }}
+                onFocus={() => setSelectedId(`grp:${g.fullPath}`)}
+                onDoubleClick={() => setEditingGroup({ path: g.fullPath, parent: g.parentPath })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    setCurrentGroup(g.fullPath)
+                  }
+                }}
+                title={g.fullPath}
+              >
                 <GroupBadge />
                 <div className="card-body">
                   <div className="card-title">{g.displayName}</div>
                   <div className="card-sub">{formatHostCount(g.hostCount)}</div>
                 </div>
-                <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+                <div className="card-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn small icon"
                     title={t('editGroup')}
@@ -581,9 +602,29 @@ export function Hosts() {
       {visibleHosts.length > 0 && (
         <section className="entity-section">
           <div className="section-title">{t('hosts')}</div>
-          <div className="cards">
+          <div className={viewMode === 'grid' ? 'cards' : 'cards list-mode'}>
             {visibleHosts.map((h) => (
-              <div key={h.id} className="card" onDoubleClick={() => connectHost(h)} title={t('connect')}>
+              <div
+                key={h.id}
+                tabIndex={0}
+                className={`card ${selectedId === h.id ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedId(h.id)
+                }}
+                onFocus={() => setSelectedId(h.id)}
+                onDoubleClick={() => connectHost(h)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    connectHost(h)
+                  } else if (e.key === 'Delete') {
+                    e.preventDefault()
+                    void removeHost(h)
+                  }
+                }}
+                title={t('connect')}
+              >
                 <HostBadge host={h} />
                 <div className="card-body">
                   <div className="card-title">{h.label}</div>
@@ -592,7 +633,7 @@ export function Hosts() {
                     {h.lastConnectedAt ? <span className="dim" style={{ marginLeft: 6 }}>· {formatRelativeTime(h.lastConnectedAt, snap.settings.language)}</span> : null}
                   </div>
                   {h.tags.length > 0 && (
-                    <div>
+                    <div className="card-chips">
                       {h.tags.map((tag) => (
                         <span key={tag} className="chip">
                           {tag}
@@ -601,7 +642,7 @@ export function Hosts() {
                     </div>
                   )}
                 </div>
-                <div className="card-actions">
+                <div className="card-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                   <button className="btn small icon" title={t('connect')} onClick={() => connectHost(h)}>
                     <Icon name="play" />
                   </button>

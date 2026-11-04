@@ -443,6 +443,7 @@ export interface OpenTermApi {
   importKey(req: ImportKeyRequest): Promise<SshKey>
   importKeyFile(): Promise<string | null>
   exportPrivateKey(id: string): Promise<boolean>
+  renameKey(id: string, label: string): Promise<SshKey>
   deleteKey(id: string): Promise<void>
   installKeyOnHost(keyId: string, hostId: string): Promise<void>
   saveSnippet(s: Omit<Snippet, 'id'> & { id?: string }): Promise<Snippet>

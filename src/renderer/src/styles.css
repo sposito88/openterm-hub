@@ -605,13 +605,49 @@ textarea.input {
   margin: 18px 0 8px;
 }
 
+.view-toggle {
+  display: inline-flex;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.view-toggle .btn {
+  border-radius: 0;
+  border: 0;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+
+.view-toggle .btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.view-toggle .btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.view-toggle .btn.active-mode {
+  background: var(--bg-hover);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 10px;
 }
 
+.cards.list-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -621,10 +657,26 @@ textarea.input {
   background: var(--bg-elev);
   cursor: pointer;
   min-width: 0;
+  outline: none;
+  transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
 }
 
-.card:hover {
+.cards.list-mode .card {
+  padding: 10px 14px;
+}
+
+.card:hover,
+.card:focus,
+.card:focus-visible,
+.card.selected {
   border-color: var(--accent);
+}
+
+.card:focus,
+.card:focus-visible,
+.card.selected {
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .card-icon {
@@ -666,8 +718,15 @@ textarea.input {
   white-space: nowrap;
 }
 
-.card {
-  position: relative;
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.card-chips .chip {
+  margin-right: 0;
 }
 
 .card-actions {
@@ -676,18 +735,39 @@ textarea.input {
   top: 50%;
   transform: translateY(-50%);
   display: flex;
+  align-items: center;
   gap: 4px;
   padding-left: 8px;
   background: var(--bg-elev);
   opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
-.card:hover .card-actions {
+.card:hover .card-actions,
+.card:focus .card-actions,
+.card:focus-visible .card-actions,
+.card.selected .card-actions {
   opacity: 1;
 }
 
+.card:focus .card-actions,
+.card:focus-visible .card-actions,
+.card.selected .card-actions {
+  background: var(--bg-hover);
+}
+
+.cards.list-mode .card-actions {
+  position: static;
+  transform: none;
+  opacity: 1;
+  background: transparent;
+  padding-left: 4px;
+}
+
 .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 1px 7px;
   border-radius: 999px;
   background: var(--bg-hover);
@@ -721,6 +801,21 @@ textarea.input {
   gap: 12px;
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
+  outline: none;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.list-item:hover,
+.list-item:focus,
+.list-item:focus-visible,
+.list-item.selected {
+  background: var(--bg-hover);
+}
+
+.list-item:focus,
+.list-item:focus-visible,
+.list-item.selected {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .list-item:last-child {

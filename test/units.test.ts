@@ -604,4 +604,36 @@ test('parseMonitorOutput extracts CPU delta, RAM, root disk, network RX/TX rates
   assert.equal(meterLevel(95), 'crit')
 })
 
+test('store supports updating existing workspaces, identities and key labels in place', async () => {
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { Store } = await import('../src/main/store')
+  const dir = mkdtempSync(join(tmpdir(), 'oth-edit-'))
+  const store = new Store(dir)
+
+  const key = store.saveKey({ label: 'old-key', type: 'ed25519', publicKey: 'ssh-ed25519 AAA', fingerprint: 'SHA256:abc', hasPassphrase: false })
+  const updatedKey = store.saveKey({ ...key, label: 'new-key' })
+  assert.equal(updatedKey.id, key.id)
+  assert.equal(store.keys().length, 1)
+  assert.equal(store.key(key.id)?.label, 'new-key')
+
+  const ws = store.saveWorkspace({
+    label: 'Cluster A',
+    layout: 'horizontal',
+    panes: [{ id: 'p1', target: { kind: 'local' }, title: 'Terminal local' }]
+  })
+  const updatedWs = store.saveWorkspace({
+    id: ws.id,
+    label: 'Cluster B',
+    layout: 'vertical',
+    panes: [{ id: 'p1', target: { kind: 'local' }, title: 'Terminal local' }]
+  })
+  assert.equal(updatedWs.id, ws.id)
+  assert.equal(store.workspaces().length, 1)
+  assert.equal(store.workspace(ws.id)?.label, 'Cluster B')
+  assert.equal(store.workspace(ws.id)?.layout, 'vertical')
+})
+
+
 

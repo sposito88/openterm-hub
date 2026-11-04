@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { AgentKey, GeneratedKeyRequest, SshKey } from '@shared/types'
 import { api } from '../api'
 import { Icon } from '../components/Icon'
-import { Drawer, Field, FormActions } from '../components/ui'
+import { Drawer, Field, FormActions, useViewMode, ViewToggle } from '../components/ui'
 import { useT } from '../i18n'
 import { attempt, useApp } from '../state'
 
@@ -163,17 +163,77 @@ ssh-copy-id -i ~/.ssh/id_ed25519_sk.pub usuario@servidor`}</pre>
   )
 }
 
+function EditKeyDrawer({ keyItem, onClose }: { keyItem: SshKey; onClose(): void }) {
+  const t = useT()
+  const toast = useApp((s) => s.toast)
+  const [label, setLabel] = useState(keyItem.label)
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault()
+    setBusy(true)
+    const ok = await attempt(() => api.renameKey(keyItem.id, label))
+    setBusy(false)
+    if (ok) onClose()
+  }
+
+  return (
+    <Drawer title={t('editKey')} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label={t('label')}>
+          <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} autoFocus required />
+        </Field>
+        <Field label={t('type')}>
+          <input className="input" value={keyItem.type} disabled />
+        </Field>
+        <Field label={t('fingerprint')}>
+          <input className="input mono" value={keyItem.fingerprint} readOnly />
+        </Field>
+        <Field label={t('copyPublic')}>
+          <textarea className="input mono" rows={4} value={keyItem.publicKey} readOnly />
+        </Field>
+        <button
+          type="button"
+          className="btn small"
+          onClick={() => {
+            void navigator.clipboard.writeText(keyItem.publicKey)
+            toast(t('copied'))
+          }}
+        >
+          <Icon name="copy" /> {t('copyPublic')}
+        </button>
+        <FormActions onCancel={onClose} busy={busy} />
+      </form>
+    </Drawer>
+  )
+}
+
 export function Keys() {
   const t = useT()
   const keys = useApp((s) => s.snapshot!.keys)
   const toast = useApp((s) => s.toast)
   const [mode, setMode] = useState<'generate' | 'import' | null>(null)
+  const [editing, setEditing] = useState<SshKey | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [viewMode, setViewMode] = useViewMode('keys', 'grid')
   const [installFor, setInstallFor] = useState<string | null>(null)
 
+  const visibleKeys = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return keys.filter((k) => !q || k.label.toLowerCase().includes(q) || k.type.toLowerCase().includes(q) || k.fingerprint.toLowerCase().includes(q))
+  }, [keys, query])
+
+  const removeKey = (k: SshKey): void => {
+    if (confirm(`${t('confirmDelete')}\n${k.label}`)) void attempt(() => api.deleteKey(k.id))
+  }
+
   return (
-    <div className="page">
-      <div className="page-head">
+    <div className="page" onClick={() => setSelectedId(null)}>
+      <div className="page-head" onClick={(e) => e.stopPropagation()}>
         <h1>{t('keys')}</h1>
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <input className="input search" placeholder={t('search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="btn" onClick={() => setMode('import')}>
           <Icon name="import" /> {t('importKey')}
         </button>
@@ -181,45 +241,70 @@ export function Keys() {
           <Icon name="plus" /> {t('generateKey')}
         </button>
       </div>
-      {keys.length === 0 ? (
+      {visibleKeys.length === 0 ? (
         <div className="empty">{t('noKeys')}</div>
       ) : (
-        <div className="list">
-          {keys.map((k) => (
-            <div key={k.id} className="list-item">
-              <Icon name="key" size={18} />
-              <div className="grow">
-                <div>
-                  <b>{k.label}</b> <span className="chip">{k.type}</span>
+        <div className={viewMode === 'grid' ? 'cards' : 'cards list-mode'}>
+          {visibleKeys.map((k) => (
+            <div
+              key={k.id}
+              tabIndex={0}
+              className={`card ${selectedId === k.id ? 'selected' : ''}`}
+              title={t('doubleClickToEdit')}
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedId(k.id)
+              }}
+              onFocus={() => setSelectedId(k.id)}
+              onDoubleClick={() => setEditing(k)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  setEditing(k)
+                } else if (e.key === 'Delete') {
+                  e.preventDefault()
+                  removeKey(k)
+                }
+              }}
+            >
+              <div className="card-icon">
+                <Icon name="key" size={18} />
+              </div>
+              <div className="card-body">
+                <div className="card-title">{k.label}</div>
+                <div className="card-sub mono selectable">{k.fingerprint}</div>
+                <div className="card-chips">
+                  <span className="chip">{k.type}</span>
                   {k.hasPassphrase && <span className="chip">passphrase</span>}
                 </div>
-                <div className="dim mono truncate selectable">{k.fingerprint}</div>
               </div>
-              <button
-                className="btn small"
-                onClick={() => {
-                  void navigator.clipboard.writeText(k.publicKey)
-                  toast(t('copied'))
-                }}
-              >
-                <Icon name="copy" /> {t('copyPublic')}
-              </button>
-              <div style={{ position: 'relative' }}>
-                <button className="btn small" onClick={() => setInstallFor(installFor === k.id ? null : k.id)}>
-                  {t('installOn')}
+              <div className="card-actions" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                <button
+                  className="btn small icon"
+                  title={t('copyPublic')}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(k.publicKey)
+                    toast(t('copied'))
+                  }}
+                >
+                  <Icon name="copy" />
                 </button>
-                {installFor === k.id && <InstallMenu keyItem={k} onClose={() => setInstallFor(null)} />}
+                <div style={{ position: 'relative' }}>
+                  <button className="btn small" onClick={() => setInstallFor(installFor === k.id ? null : k.id)}>
+                    {t('installOn')}
+                  </button>
+                  {installFor === k.id && <InstallMenu keyItem={k} onClose={() => setInstallFor(null)} />}
+                </div>
+                <button className="btn small icon" title={t('exportKey')} onClick={() => attempt(() => api.exportPrivateKey(k.id))}>
+                  <Icon name="download" />
+                </button>
+                <button className="btn small icon" title={t('edit')} onClick={() => setEditing(k)}>
+                  <Icon name="edit" />
+                </button>
+                <button className="btn small icon danger" title={t('delete')} onClick={() => removeKey(k)}>
+                  <Icon name="trash" />
+                </button>
               </div>
-              <button className="btn small" onClick={() => attempt(() => api.exportPrivateKey(k.id))}>
-                <Icon name="download" /> {t('exportKey')}
-              </button>
-              <button
-                className="btn small icon danger"
-                title={t('delete')}
-                onClick={() => confirm(`${t('confirmDelete')}\n${k.label}`) && attempt(() => api.deleteKey(k.id))}
-              >
-                <Icon name="trash" />
-              </button>
             </div>
           ))}
         </div>
@@ -227,6 +312,7 @@ export function Keys() {
       <AgentKeys />
       {mode === 'generate' && <GenerateForm onClose={() => setMode(null)} />}
       {mode === 'import' && <ImportForm onClose={() => setMode(null)} />}
+      {editing && <EditKeyDrawer keyItem={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }

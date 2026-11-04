@@ -4,7 +4,7 @@ import type { OpenTermApi } from '@shared/types'
 /** Request/response calls. */
 const invoke = [
   'getSnapshot', 'appVersion', 'getHostPassword', 'getIdentityPassword', 'saveHost', 'deleteHost', 'saveGroup', 'deleteGroup', 'saveIdentity', 'deleteIdentity', 'saveWorkspace', 'deleteWorkspace', 'importSshConfig', 'importClient',
-  'generateKey', 'importKey', 'importKeyFile', 'exportPrivateKey', 'deleteKey', 'installKeyOnHost',
+  'generateKey', 'importKey', 'importKeyFile', 'exportPrivateKey', 'renameKey', 'deleteKey', 'installKeyOnHost',
   'saveSnippet', 'deleteSnippet',
   'saveForward', 'deleteForward', 'startForward', 'stopForward', 'forwardStatuses',
   'deleteKnownHost', 'saveSettings', 'exportBackup', 'importBackup',

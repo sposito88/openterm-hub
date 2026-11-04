@@ -23,6 +23,7 @@ import {
 import { BUNDLED_FONTS, fontStack, systemMonospaceFonts } from '../fonts'
 import { api } from '../api'
 import { Icon, type IconName } from '../components/Icon'
+import { useViewMode, ViewToggle } from '../components/ui'
 import { useT, type TKey } from '../i18n'
 import { attempt, useApp, useUiLight, type SettingsSection } from '../state'
 import { TERMINAL_THEMES, type TerminalTheme } from '../terminalThemes'
@@ -776,37 +777,70 @@ export function Settings() {
 export function KnownHosts() {
   const t = useT()
   const known = useApp((s) => s.snapshot!.knownHosts)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [viewMode, setViewMode] = useViewMode('knownHosts', 'grid')
+
+  const q = query.trim().toLowerCase()
+  const visibleKnown = known.filter(
+    (k) => !q || `${k.host}:${k.port}`.toLowerCase().includes(q) || k.keyType.toLowerCase().includes(q) || k.fingerprint.toLowerCase().includes(q)
+  )
+
   return (
-    <div className="page">
-      <div className="page-head">
+    <div className="page" onClick={() => setSelectedId(null)}>
+      <div className="page-head" onClick={(e) => e.stopPropagation()}>
         <h1>{t('knownHosts')}</h1>
+        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <input className="input search" placeholder={t('search')} value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      {known.length === 0 ? (
+      {visibleKnown.length === 0 ? (
         <div className="empty">{t('noKnownHosts')}</div>
       ) : (
-        <div className="list">
-          {known.map((k) => (
-            <div key={`${k.host}:${k.port}`} className="list-item">
-              <Icon name="shield" size={18} />
-              <div className="grow">
-                <div>
-                  <b>
-                    {k.host}:{k.port}
-                  </b>{' '}
-                  <span className="chip">{k.keyType}</span>
-                </div>
-                <div className="dim mono truncate selectable">{k.fingerprint}</div>
-              </div>
-              <span className="dim">{new Date(k.addedAt).toLocaleDateString()}</span>
-              <button
-                className="btn small icon danger"
-                title={t('delete')}
-                onClick={() => confirm(t('confirmDelete')) && attempt(() => api.deleteKnownHost(k.host, k.port))}
+        <div className={viewMode === 'grid' ? 'cards' : 'cards list-mode'}>
+          {visibleKnown.map((k) => {
+            const id = `${k.host}:${k.port}`
+            return (
+              <div
+                key={id}
+                tabIndex={0}
+                className={`card ${selectedId === id ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedId(id)
+                }}
+                onFocus={() => setSelectedId(id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Delete') {
+                    e.preventDefault()
+                    if (confirm(t('confirmDelete'))) void attempt(() => api.deleteKnownHost(k.host, k.port))
+                  }
+                }}
               >
-                <Icon name="trash" />
-              </button>
-            </div>
-          ))}
+                <div className="card-icon">
+                  <Icon name="shield" size={18} />
+                </div>
+                <div className="card-body">
+                  <div className="card-title">
+                    {k.host}:{k.port}
+                  </div>
+                  <div className="card-sub mono selectable">{k.fingerprint}</div>
+                  <div className="card-chips">
+                    <span className="chip">{k.keyType}</span>
+                    <span className="chip">{new Date(k.addedAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="btn small icon danger"
+                    title={t('delete')}
+                    onClick={() => confirm(t('confirmDelete')) && attempt(() => api.deleteKnownHost(k.host, k.port))}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

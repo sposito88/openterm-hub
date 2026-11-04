@@ -346,6 +346,11 @@ app.whenReady().then(() => {
       writeFileSync(`${res.filePath}.pub`, key.publicKey + '\n', { mode: 0o644 })
       return true
     },
+    renameKey: (id, label) => {
+      const key = store.key(id)
+      if (!key) throw new Error('Chave não encontrada')
+      return store.saveKey({ ...key, label: label.trim() || key.label })
+    },
     deleteKey: (id) => store.deleteKey(id),
     installKeyOnHost: (keyId, hostId) => installKeyOnHost(deps, keyId, hostId),
     saveSnippet: (s) => {
